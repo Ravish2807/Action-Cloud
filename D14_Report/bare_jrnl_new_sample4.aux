@@ -1,0 +1,79 @@
+\relax 
+\citation{park2023generative,hong2023metagpt}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Architectural overview of the ActionCloud cloud-native procedural memory and governance ecosystem, illustrating decoupled ingestion, asynchronous worker extraction, pgvector storage, and Memory Judge lifecycle management.}}{1}{}\protected@file@percent }
+\newlabel{fig:arch}{{1}{1}{}{figure.1}{}}
+\citation{park2023generative}
+\citation{packer2023memgpt}
+\citation{wang2023voyager}
+\citation{hong2023metagpt}
+\citation{aws2024bedrock}
+\citation{park2023generative}
+\citation{packer2023memgpt}
+\citation{wang2023voyager}
+\citation{hong2023metagpt}
+\citation{wu2023autogen}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Comparative Taxonomy of Autonomous Agent Memory Systems}}{2}{}\protected@file@percent }
+\newlabel{tab:related_work}{{I}{2}{}{table.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work \& Comparative Taxonomy}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Single-Agent Context and Skill Memories}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Multi-Agent Frameworks and Message Buses}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Commercial Cloud Memory Offerings}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}Mathematical Modeling \& Formal Foundations}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Formal Definition of an Experience Episode}{2}{}\protected@file@percent }
+\newlabel{eq:experience}{{1}{2}{}{equation.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Asynchronous Ingestion Queuing Formulation}{3}{}\protected@file@percent }
+\newlabel{eq:blocking_latency}{{3}{3}{}{equation.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Hybrid Dense-Sparse Relevance Scoring}{3}{}\protected@file@percent }
+\newlabel{eq:cosine}{{4}{3}{}{equation.4}{}}
+\newlabel{eq:sparse}{{5}{3}{}{equation.5}{}}
+\newlabel{eq:hybrid}{{6}{3}{}{equation.6}{}}
+\newlabel{eq:policy}{{7}{3}{}{equation.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Epistemic Trust State Machine (Memory Judge)}{3}{}\protected@file@percent }
+\newlabel{eq:governance_rules}{{9}{3}{}{equation.9}{}}
+\newlabel{eq:confidence_update}{{10}{3}{}{equation.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}System Evaluation Metrics}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IV}System Architecture \& Cloud-Native Implementation}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Decoupled Microservice Topology}{3}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Dynamic trust tier transitions and confidence trajectories governed by the Memory Judge. Trajectory A shows promotion from Agent to Organizational tier under validated reuses; Trajectory B illustrates rapid demotion and quarantine upon repeated reuse failure.}}{4}{}\protected@file@percent }
+\newlabel{fig:governance}{{2}{4}{}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Database Schema and Audit Integrity}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}Experimental Methodology \& Multi-Agent Swarm Testbed}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Dual-Arm Single-Class Experimental Design}{4}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces PostgreSQL schema for procedural experience storage with pgvector and governance constraints.}}{4}{}\protected@file@percent }
+\newlabel{lst:schema}{{3}{4}{}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Functional Role Registry}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Empirical Evaluation \& Results Analysis}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Token Consumption and Cost Amortization}{4}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Cumulative token consumption (k-Tokens) and financial cost (USD) across 100 sequential swarm task episodes. ActionCloud achieves a 57.4\% reduction in overall token and dollar expenditures.}}{5}{}\protected@file@percent }
+\newlabel{fig:tokens_cost}{{4}{5}{}{figure.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Evolution of Knowledge Reuse Rate (KRR \%) and Redundancy Index (RI) as swarm workload scales from 10 to 100 episodes. As KRR reaches 91.8\%, redundant problem-solving drops from 0.74 down to 0.08.}}{5}{}\protected@file@percent }
+\newlabel{fig:krr_redundancy}{{5}{5}{}{figure.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Mean task execution latency breakdown (ms) across the six specialized agent roles, demonstrating 2.8x to 3.2x latency speedups under ActionCloud.}}{5}{}\protected@file@percent }
+\newlabel{fig:latency}{{6}{5}{}{figure.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Knowledge Reuse and Redundancy Elimination}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-C}}Latency Acceleration Across Functional Roles}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-D}}Epistemic Governance \& Poisoning Prevention}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Cloud Deployment, Scalability, \& Security}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-A}}Production Architecture on AWS}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-B}}Security, Privacy, and Multi-Tenancy}{5}{}\protected@file@percent }
+\citation{jimenez2024swebench}
+\citation{qin2024toolbench}
+\bibcite{park2023generative}{1}
+\bibcite{hong2023metagpt}{2}
+\bibcite{packer2023memgpt}{3}
+\bibcite{wang2023voyager}{4}
+\bibcite{wu2023autogen}{5}
+\bibcite{shinn2024reflexion}{6}
+\bibcite{vaswani2017attention}{7}
+\bibcite{pgvector2024}{8}
+\bibcite{aws2024bedrock}{9}
+\bibcite{fastapi2024}{10}
+\bibcite{jimenez2024swebench}{11}
+\bibcite{qin2024toolbench}{12}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Comprehensive Benchmark Performance Comparison: Stateless Baseline (System A) vs. ActionCloud (System B)}}{6}{}\protected@file@percent }
+\newlabel{tab:results_summary}{{II}{6}{}{table.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VIII}Conclusion \& Future Work}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VIII-A}}Future Research Directions \& Roadmap Targets}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{6}{}\protected@file@percent }
+\gdef \@abspage@last{6}

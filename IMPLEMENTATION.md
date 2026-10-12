@@ -223,3 +223,5 @@ Every migration after `001` is idempotent; `make migrate` applies them all.
 2. Semantic embeddings, then recalibrate the threshold.
 3. Reporter-credibility weighting to resist collusion.
 4. Dockerfile, CI pipeline (GitHub Actions with a Postgres service) and licence.
+5. External benchmark dataset integration: adapting standard benchmarks (SWE-bench, ToolBench) to evaluate multi-agent memory transfer across external open-source software engineering repositories.
+

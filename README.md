@@ -403,3 +403,5 @@ results/           The evaluation run cited above
 - **Collusion:** governance limits but does not stop large colluding groups. In simulation, about 30 % adversarial agents bring ActionCloud down to no-memory performance.
 - **Keys:** there is no rate limiting or key expiry; a leaked key works until it is revoked.
 - **Packaging:** no Dockerfile, CI pipeline or license file yet.
+- **External benchmark datasets:** the current 136-task suite is built-in. A future roadmap target is adapting standard external agent benchmarks (e.g. SWE-bench for GitHub issues, ToolBench for tool trajectories) to benchmark cross-agent memory reuse across clustered open-source repositories.
+
