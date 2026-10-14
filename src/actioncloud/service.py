@@ -86,6 +86,9 @@ class MemoryService:
         agent_role: AgentRole | str | None = None,
         technologies: list[str] | None = None,
         scope_run_id: str | None = None,
+        tenant_id: str | None = None,
+        federated: bool = False,
+        session_id: str | None = None,
     ) -> List[ExperienceResult]:
         """Governed hybrid vector + full-text search."""
         rows = db.hybrid_search_experiences(
@@ -96,6 +99,9 @@ class MemoryService:
             agent_id=agent_id,
             agent_role=_role_value(agent_role),
             scope_run_id=scope_run_id,
+            tenant_id=tenant_id,
+            federated=federated,
+            session_id=session_id,
         )
         return [
             ExperienceResult(
@@ -131,6 +137,9 @@ class MemoryService:
         policy: MemorySelectionPolicy | None = None,
         technologies: list[str] | None = None,
         scope_run_id: str | None = None,
+        tenant_id: str | None = None,
+        federated: bool = False,
+        session_id: str | None = None,
     ) -> Dict[str, Any]:
         """
         1. Retrieve candidate_k governed candidates (hybrid search).
@@ -148,6 +157,9 @@ class MemoryService:
             agent_role=_role_value(role),
             scope_run_id=scope_run_id,
             ann_candidates=pol.ann_candidates,
+            tenant_id=tenant_id,
+            federated=federated,
+            session_id=session_id,
         )
         context_str, injected_ids, candidate_count, final_count = (
             CompactContextBuilder.build_context(candidates, pol)
@@ -167,6 +179,10 @@ class MemoryService:
             ],
             "candidate_count": candidate_count,
             "final_count": final_count,
+            "low_confidence": candidate_count > 0 and not any(
+                float(c.get("confidence") if c.get("confidence") is not None else 1.0)
+                >= pol.min_confidence for c in candidates
+            ),
             "context_tokens": count_tokens(context_str),
         }
 

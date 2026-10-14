@@ -62,6 +62,7 @@ INSERT INTO experiences (
     tools_used, technologies, success,
     tokens_input, tokens_output, tool_calls, execution_time_ms, cost_usd,
     run_id, system, task_key, retrieved_experience_ids,
+    session_id, tenant_id, federated, expires_at,
     tier, confidence, prior
 ) VALUES (
     %(id)s, %(schema_version)s, %(agent_id)s, %(agent_role)s,
@@ -69,6 +70,7 @@ INSERT INTO experiences (
     %(tools_used)s, %(technologies)s, %(success)s,
     %(tokens_input)s, %(tokens_output)s, %(tool_calls)s, %(execution_time_ms)s, %(cost_usd)s,
     %(run_id)s, %(system)s, %(task_key)s, %(retrieved_experience_ids)s,
+    %(session_id)s, %(tenant_id)s, %(federated)s, %(expires_at)s,
     %(tier)s, %(confidence)s, %(prior)s
 )
 -- The queue guarantees at-least-once delivery, so the same event can legitimately
@@ -102,6 +104,10 @@ def _insert_params(exp: Experience) -> dict[str, Any]:
         "system": exp.system.value,
         "task_key": exp.task_key,
         "retrieved_experience_ids": [str(i) for i in exp.retrieved_experience_ids],
+        "session_id": exp.session_id,
+        "tenant_id": exp.tenant_id,
+        "federated": exp.federated,
+        "expires_at": exp.expires_at,
         "tier": exp.tier.value,
         "confidence": exp.confidence,
         "prior": exp.prior,
@@ -483,7 +489,16 @@ _COMMON_FILTERS = f"""
       e.superseded_by IS NULL
   AND e.tier >= %(min_tier)s::memory_tier
   AND (%(scope_run_id)s::text IS NULL OR e.run_id = %(scope_run_id)s::text)
-  AND {VISIBILITY_SQL}
+  AND (e.expires_at IS NULL OR e.expires_at >= now())
+  AND (
+      ({VISIBILITY_SQL})
+      OR (%(session_id)s::text IS NOT NULL AND e.session_id = %(session_id)s::text)
+  )
+  AND (
+      (e.tenant_id IS NULL AND %(tenant_id)s::text IS NULL)
+      OR e.tenant_id = %(tenant_id)s::text
+      OR (%(federated)s::boolean AND e.federated)
+  )
 """
 
 # Phase 1 retrieval: Postgres full-text search, ranked by ts_rank.
@@ -546,7 +561,8 @@ LIMIT %(limit)s;
 """
 
 
-def _params(query, limit, min_tier, agent_id, agent_role, scope_run_id, vector=None):
+def _params(query, limit, min_tier, agent_id, agent_role, scope_run_id, vector=None,
+            tenant_id=None, federated=False, session_id=None):
     return {
         "query": query,
         "vector": _vec(vector) if vector else None,
@@ -555,6 +571,9 @@ def _params(query, limit, min_tier, agent_id, agent_role, scope_run_id, vector=N
         "agent_id": agent_id,
         "agent_role": agent_role.value if hasattr(agent_role, "value") else agent_role,
         "scope_run_id": scope_run_id,
+        "tenant_id": tenant_id,
+        "federated": federated,
+        "session_id": session_id,
     }
 
 
@@ -571,11 +590,15 @@ def search_experiences(
     agent_id: str | None = None,
     agent_role: Any = None,
     scope_run_id: str | None = None,
+    tenant_id: str | None = None,
+    federated: bool = False,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Keyword-only search (used when no query vector is available)."""
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute(
-            SEARCH_SQL, _params(query, limit, min_tier, agent_id, agent_role, scope_run_id)
+            SEARCH_SQL, _params(query, limit, min_tier, agent_id, agent_role, scope_run_id,
+                                tenant_id=tenant_id, federated=federated, session_id=session_id)
         )
         return _strip(cur.fetchall())
 
@@ -589,6 +612,9 @@ def hybrid_search_experiences(
     agent_role: Any = None,
     scope_run_id: str | None = None,
     ann_candidates: int = 0,
+    tenant_id: str | None = None,
+    federated: bool = False,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Hybrid vector + keyword retrieval under the visibility rules above.
@@ -597,8 +623,10 @@ def hybrid_search_experiences(
     value uses the HNSW index to pre-select that many nearest neighbours.
     """
     if not query_vector:
-        return search_experiences(query, limit, min_tier, agent_id, agent_role, scope_run_id)
-    params = _params(query, limit, min_tier, agent_id, agent_role, scope_run_id, query_vector)
+        return search_experiences(query, limit, min_tier, agent_id, agent_role, scope_run_id,
+                                  tenant_id, federated, session_id)
+    params = _params(query, limit, min_tier, agent_id, agent_role, scope_run_id, query_vector,
+                     tenant_id, federated, session_id)
     # Scoped queries (one run / experiment) are small: score them exactly. The
     # index is global, so its nearest neighbours may all lie outside the scope.
     use_ann = ann_candidates > 0 and scope_run_id is None
@@ -648,3 +676,209 @@ def require_database() -> None:
             f"Postgres is not reachable at {target}.\n"
             "Start Docker Desktop, then run `make up` (and `make migrate` for an old volume)."
         )
+
+
+# --------------------------------------------------------------------------
+# Memory Decay
+# --------------------------------------------------------------------------
+
+def prune_expired_memories() -> int:
+    """
+    Mark all memories whose `expires_at` has passed as superseded.
+
+    Expired memories are quarantined to PRIVATE tier and stamped with
+    a tier_transition record so the audit trail is preserved.  They are
+    NOT hard-deleted — the author can still read them.
+
+    Returns the number of memories pruned.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Find expired, not-yet-superseded memories above PRIVATE.
+            cur.execute(
+                """
+                SELECT id, tier FROM experiences
+                WHERE expires_at IS NOT NULL
+                  AND expires_at < now()
+                  AND superseded_by IS NULL
+                FOR UPDATE SKIP LOCKED
+                """
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                cur.execute(
+                    """
+                    UPDATE experiences
+                    SET tier = 'private'::memory_tier,
+                        superseded_by = id,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (row["id"],),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO tier_transitions
+                        (experience_id, from_tier, to_tier, reason, decided_by)
+                    VALUES (%s, %s, 'private', 'TTL expired: memory pruned by decay scheduler',
+                            'decay_scheduler')
+                    """,
+                    (row["id"], row["tier"]),
+                )
+        conn.commit()
+    return len(rows)
+
+
+def demote_stale_memories(stale_days: int) -> int:
+    """
+    Demote memories that have not been reused in `stale_days` days by one tier.
+
+    Only memories above AGENT that were created more than `stale_days` ago are
+    considered — new memories should not be penalised for not having had time
+    to be reused.
+
+    Returns the number of memories demoted.
+    """
+    if stale_days <= 0:
+        return 0
+
+    _DEMOTION: dict[str, str] = {
+        "organizational": "validated",
+        "validated": "shared",
+        "shared": "agent",
+    }
+
+    total = 0
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, tier FROM experiences
+                WHERE tier > 'agent'::memory_tier
+                  AND superseded_by IS NULL
+                  AND updated_at < now() - (%s || ' days')::interval
+                  AND (
+                      SELECT count(*) FROM reuse_events re
+                      WHERE re.experience_id = experiences.id
+                        AND re.created_at > now() - (%s || ' days')::interval
+                  ) = 0
+                FOR UPDATE SKIP LOCKED
+                """,
+                (str(stale_days), str(stale_days)),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                new_tier = _DEMOTION.get(row["tier"])
+                if not new_tier:
+                    continue
+                cur.execute(
+                    """
+                    UPDATE experiences
+                    SET tier = %s::memory_tier, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (new_tier, row["id"]),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO tier_transitions
+                        (experience_id, from_tier, to_tier, reason, decided_by)
+                    VALUES (%s, %s, %s,
+                            'Usage-frequency decay: no reuse in ' || %s || ' days',
+                            'decay_scheduler')
+                    """,
+                    (row["id"], row["tier"], new_tier, str(stale_days)),
+                )
+                total += 1
+        conn.commit()
+    return total
+
+
+# --------------------------------------------------------------------------
+# Session-scoped Retrieval
+# --------------------------------------------------------------------------
+
+def get_session_experiences(
+    session_id: str,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Return all experiences from a given session_id, ordered newest-first.
+
+    Session memories allow agents in the same session to share context even
+    before those memories have been promoted from PRIVATE tier.
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT * FROM experiences
+            WHERE session_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (session_id, limit),
+        )
+        rows = cur.fetchall()
+    return _strip(rows)
+
+
+# --------------------------------------------------------------------------
+# Live LLM run activity (dashboard monitor)
+# --------------------------------------------------------------------------
+
+def start_llm_activity(activity_id: uuid.UUID, *, run_id: str, agent_id: str,
+                       agent_role: str, llm_model: str, task: str) -> None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO llm_run_activity
+               (activity_id, run_id, agent_id, agent_role, llm_model, task, stage, status)
+               VALUES (%s, %s, %s, %s, %s, %s, 'retrieval', 'running')
+               ON CONFLICT (activity_id) DO NOTHING""",
+            (activity_id, run_id, agent_id, agent_role, llm_model, task[:2000]),
+        )
+        conn.commit()
+
+
+def update_llm_activity(activity_id: uuid.UUID, **fields: Any) -> None:
+    allowed = {
+        "stage", "status", "outcome_success", "result_text", "memory_id",
+        "memory_tier", "storage_status", "error_text", "completed_at",
+    }
+    update = {k: v for k, v in fields.items() if k in allowed}
+    if not update:
+        return
+    assignments = ", ".join(f"{key} = %({key})s" for key in update)
+    params = dict(update, activity_id=activity_id)
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE llm_run_activity SET {assignments}, updated_at = now() "
+            "WHERE activity_id = %(activity_id)s",
+            params,
+        )
+        conn.commit()
+
+
+def mark_llm_activity_stored(experience_id: uuid.UUID, tier: str) -> None:
+    """Resolve a queued memory id to its persisted governance tier."""
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """UPDATE llm_run_activity SET storage_status = 'stored', memory_tier = %s,
+               updated_at = now() WHERE memory_id = %s""",
+            (tier, experience_id),
+        )
+        conn.commit()
+
+
+def get_llm_activity(run_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT activity_id::text, run_id, agent_id, agent_role, llm_model, task,
+                      stage, status, outcome_success, result_text, memory_id::text,
+                      memory_tier, storage_status, error_text, started_at, updated_at,
+                      completed_at
+               FROM llm_run_activity
+               WHERE (%s::text IS NULL OR run_id = %s::text)
+               ORDER BY started_at DESC LIMIT %s""",
+            (run_id, run_id, limit),
+        )
+        return cur.fetchall()

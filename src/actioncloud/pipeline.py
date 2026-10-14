@@ -67,6 +67,10 @@ def process_experience(exp: Experience | dict[str, Any], governance: bool = True
         decided_by=DECIDED_BY,
     )
     if inserted:
+        try:
+            db.mark_llm_activity_stored(exp.id, tier.value)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("could not update live run storage state: %s", exc)
         log.info(
             "stored %s | %s/%s | success=%s | tier=%s | %d tokens",
             exp.id, exp.agent_role.value, exp.system.value, exp.success,

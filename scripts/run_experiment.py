@@ -115,9 +115,11 @@ def main() -> int:
             Workload(epochs=args.epochs, agents_per_role=args.agents_per_role, limit=args.limit),
             provider=args.provider, progress=lambda m: print("  ", m, flush=True),
         )
-        (out / f"{name}.json").write_text(json.dumps(result, indent=1, default=str))
+        (out / f"{name}.json").write_text(
+            json.dumps(result, indent=1, default=str), encoding="utf-8"
+        )
         md = to_markdown(result)
-        (out / f"{name}.md").write_text(f"## {name}\n\n{md}")
+        (out / f"{name}.md").write_text(f"## {name}\n\n{md}", encoding="utf-8")
         print(md)
         print(f"({time.time() - t0:.0f}s) -> {out / (name + '.json')}")
     return 0

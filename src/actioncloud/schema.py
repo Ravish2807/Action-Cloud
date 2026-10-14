@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 # Bump this whenever the stored shape changes. Persisted rows keep the version
 # they were written with, so a later migration can find and upgrade them.
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 class AgentRole(str, Enum):
@@ -84,6 +84,11 @@ _TIER_RANK = {
 }
 
 
+class TenantVisibility(str, Enum):
+    PRIVATE_TENANT = "private_tenant"
+    FEDERATED = "federated"
+
+
 class SystemCondition(str, Enum):
     """
     Which arm of the Phase 3 experiment produced this record.
@@ -100,6 +105,16 @@ class SystemCondition(str, Enum):
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _default_expires_at() -> Optional[datetime]:
+    """Returns None by default (no expiry). Set via MEMORY_TTL_DAYS."""
+    import os  # noqa: PLC0415
+    ttl = int(os.environ.get("MEMORY_TTL_DAYS", "0"))
+    if ttl <= 0:
+        return None
+    from datetime import timedelta  # noqa: PLC0415
+    return datetime.now(timezone.utc) + timedelta(days=ttl)
 
 
 class ExperienceCreate(BaseModel):
@@ -140,6 +155,17 @@ class ExperienceCreate(BaseModel):
     # --- experiment bookkeeping ------------------------------------------
     run_id: str = Field(..., description="Groups all tasks in one experimental run")
     system: SystemCondition
+
+    # Optional: groups tasks executed in the same agent session.
+    # Agents in the same session may access each other's PRIVATE memories
+    # within the session scope, enabling ephemeral intra-session reuse.
+    session_id: Optional[str] = Field(
+        None,
+        description="Groups all tasks executed in the same agent session",
+    )
+    tenant_id: Optional[str] = None
+    federated: bool = False
+
     task_key: Optional[str] = Field(
         None,
         description=(
@@ -211,6 +237,13 @@ class Experience(ExperienceCreate):
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+    # TTL-based expiry (None = never expires). Set MEMORY_TTL_DAYS > 0 to
+    # enable automatic decay pruning via `decay.run_decay_pass()`.
+    expires_at: Optional[datetime] = Field(
+        default_factory=_default_expires_at,
+        description="UTC datetime after which this memory is eligible for pruning",
+    )
 
     @property
     def observed_success_rate(self) -> Optional[float]:

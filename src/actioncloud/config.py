@@ -47,6 +47,15 @@ class Settings:
     # it would change the latency profile you are trying to measure.
     sync_write: bool = field(default_factory=lambda: _env_bool("SYNC_WRITE", False))
 
+    # --- Memory Decay -----------------------------------------------------
+    # Number of days before a memory expires (0 = never expires).
+    # Expired memories are pruned by decay.run_decay_pass() or POST /admin/decay.
+    memory_ttl_days: int = field(default_factory=lambda: int(_env("MEMORY_TTL_DAYS", "0")))
+
+    # Number of days without a reuse before a memory is demoted one tier
+    # (0 = no usage-frequency decay).
+    memory_decay_days: int = field(default_factory=lambda: int(_env("MEMORY_DECAY_DAYS", "0")))
+
     # --- Auth -------------------------------------------------------------
     # REST callers must present an agent API key (X-API-Key). Identity and
     # role come from the key, never from the request body. Turn off only for

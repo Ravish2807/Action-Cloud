@@ -128,6 +128,7 @@ class ActionCloudMCPServer:
                         "task": {"type": "string", "description": "The task you are about to do"},
                         **identity,
                         "technologies": {"type": "array", "items": {"type": "string"}},
+                        "session_id": {"type": "string"},
                         "k_inject": {"type": "integer", "minimum": 1, "maximum": 5, "default": 1},
                         "token_budget": {"type": "integer", "minimum": 100, "default": 1000},
                     },
@@ -162,6 +163,7 @@ class ActionCloudMCPServer:
                         "problem": {"type": "string"},
                         "solution": {"type": "string"},
                         "technologies": {"type": "array", "items": {"type": "string"}},
+                        "session_id": {"type": "string"},
                     },
                     "required": ["task", "action_taken", "result", "success"],
                 },
@@ -187,6 +189,24 @@ class ActionCloudMCPServer:
                 "description": "Aggregate governance and efficiency metrics.",
                 "inputSchema": {"type": "object", "properties": {"run_id": {"type": "string"}}},
             },
+            {
+                "name": "assign_agent_role",
+                "description": "Recommend a specialized ActionCloud agent role for a task.",
+                "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}},
+                                "required": ["task"]},
+            },
+            {
+                "name": "run_memory_decay",
+                "description": "Run an administrator memory decay pass using configured TTL and staleness settings.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "get_session_memories",
+                "description": "List recent experiences tagged with a shared session id.",
+                "inputSchema": {"type": "object", "properties": {
+                    "session_id": {"type": "string"}, "limit": {"type": "integer", "default": 20}},
+                    "required": ["session_id"]},
+            },
         ]
 
     # -- tools -----------------------------------------------------------------
@@ -206,6 +226,7 @@ class ActionCloudMCPServer:
                     role=_role(args),
                     policy=pol,
                     technologies=args.get("technologies") or [],
+                    session_id=args.get("session_id"),
                 )
                 if not res["context"]:
                     return "No relevant governed prior experience found.", False
@@ -255,6 +276,7 @@ class ActionCloudMCPServer:
                     problem=args.get("problem"),
                     solution=args.get("solution"),
                     technologies=args.get("technologies") or [],
+                    session_id=args.get("session_id"),
                     run_id="mcp-session",
                     system=SystemCondition.ACTIONCLOUD,
                 )
@@ -281,6 +303,21 @@ class ActionCloudMCPServer:
 
             if name == "get_memory_metrics":
                 return json.dumps(self.service.get_metrics(args.get("run_id")), indent=2, default=str), False
+
+            if name == "assign_agent_role":
+                from .agents.coordinator import CoordinatorAgent  # noqa: PLC0415
+                result = CoordinatorAgent().assign(_arg(args, "task", required=True))
+                return json.dumps({"role": result["role"].value, "reason": result["reason"]}), False
+
+            if name == "run_memory_decay":
+                from .decay import run_decay_pass  # noqa: PLC0415
+                return json.dumps(run_decay_pass(), indent=2), False
+
+            if name == "get_session_memories":
+                from . import db  # noqa: PLC0415
+                rows = db.get_session_experiences(_arg(args, "session_id", required=True),
+                                                  limit=max(1, min(100, int(args.get("limit", 20)))))
+                return json.dumps(rows, default=str), False
 
             return f"Unknown tool: {name}", True
 

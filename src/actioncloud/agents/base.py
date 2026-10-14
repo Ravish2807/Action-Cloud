@@ -6,9 +6,11 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from ..benchmark.verifier import TaskVerifier
+from .. import db
 from ..llm import LLM, get_llm
 from ..policy import MemorySelectionPolicy
 from ..schema import AgentRole, SystemCondition
@@ -36,6 +38,7 @@ class TaskSpec:
     technologies: list[str] = field(default_factory=list)
     expected_tools: list[str] = field(default_factory=list)
     instance_id: Optional[str] = None  # seeds the simulated environment
+    session_id: Optional[str] = None
 
 
 @dataclass
@@ -118,7 +121,59 @@ class Agent:
         task = f"## Your task\n{spec.task}"
         return f"{context}\n\n{task}" if context else task
 
+    def _track_activity(self, activity_id: uuid.UUID, **fields: Any) -> None:
+        """Best-effort telemetry; monitoring must never prevent task completion."""
+        try:
+            db.update_llm_activity(activity_id, **fields)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("live run telemetry unavailable: %s", exc)
+
     def run_task(self, spec: TaskSpec) -> TaskOutcome:
+        activity_id = uuid.uuid4()
+        try:
+            role = self.role.value if hasattr(self.role, "value") else str(self.role)
+            try:
+                db.start_llm_activity(
+                    activity_id,
+                    run_id=self.run_id,
+                    agent_id=self.agent_id,
+                    agent_role=role,
+                    llm_model=str(getattr(self.llm, "model", type(self.llm).__name__)),
+                    task=spec.task,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.debug("could not start live run telemetry: %s", exc)
+            outcome = self._run_task(spec, activity_id)
+            memory_tier = None
+            storage_status = "queued" if getattr(self.client, "last_store_queued", False) else "stored"
+            if outcome.experience_id:
+                try:
+                    record = db.get_experience(outcome.experience_id)
+                    if record:
+                        storage_status = "stored"
+                        memory_tier = record.get("tier")
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("could not resolve stored memory tier: %s", exc)
+            self._track_activity(
+                activity_id,
+                status="completed",
+                stage="completed",
+                outcome_success=outcome.success,
+                result_text=outcome.result[:2000],
+                memory_id=outcome.experience_id,
+                memory_tier=memory_tier,
+                storage_status=storage_status,
+                completed_at=datetime.now(timezone.utc),
+            )
+            return outcome
+        except Exception as exc:
+            self._track_activity(
+                activity_id, status="failed", stage="failed",
+                error_text=str(exc)[:1000], completed_at=datetime.now(timezone.utc),
+            )
+            raise
+
+    def _run_task(self, spec: TaskSpec, activity_id: uuid.UUID) -> TaskOutcome:
         """
         Retrieve (memory arm only) -> solve -> verify -> store -> report reuse.
 
@@ -129,6 +184,7 @@ class Agent:
             "context": "", "injected_experience_ids": [], "injected_task_keys": [],
             "context_tokens": 0, "candidate_count": 0,
         }
+        self._track_activity(activity_id, stage="retrieval")
         t0 = time.perf_counter()
         if self.use_memory:
             ctx = self.client.context(
@@ -138,11 +194,15 @@ class Agent:
                 technologies=spec.technologies,
                 policy=self.policy,
                 scope_run_id=self.scope_run_id,
+                session_id=spec.session_id,
             )
+            if ctx.get("low_confidence"):
+                log.info("%s: skipping memory injection because no candidate met confidence policy", self.agent_id)
         retrieval_ms = int((time.perf_counter() - t0) * 1000)
 
         if spec.instance_id and hasattr(self.llm, "set_instance"):
             self.llm.set_instance(spec.instance_id)
+        self._track_activity(activity_id, stage="llm_generation")
         response = self.llm.complete(
             self._build_prompt(spec, ctx["context"]),
             system=f"{self.system_prompt}\n{ANSWER_FORMAT}",
@@ -150,6 +210,7 @@ class Agent:
 
         # Tasks outside the benchmark have no ground truth; they are treated
         # as successful (the old behaviour) rather than failing the run.
+        self._track_activity(activity_id, stage="verification")
         verdict = (
             self.verifier.verify(spec.task_key, response.text)
             if spec.task_key and spec.task_key in self.verifier.procedures
@@ -181,6 +242,7 @@ class Agent:
         # Contribute back. The agent stores its OWN (lenient) judgement of
         # success; it cannot see the strict verdict any more than a real agent
         # can. The baseline arm stores too, for its token/latency figures.
+        self._track_activity(activity_id, stage="memory_storage")
         outcome.experience_id = self.client.store(
             agent_id=self.agent_id,
             agent_role=self.role,
@@ -200,6 +262,7 @@ class Agent:
             cost_usd=response.cost_usd,
             task_key=spec.task_key,
             retrieved_experience_ids=injected,
+            session_id=spec.session_id,
         )
 
         # Governance feedback, sent only when the true outcome is observed:
@@ -208,6 +271,7 @@ class Agent:
         #    negative self-report, which the Judge counts (positive ones it
         #    ignores).
         if self.report_reuse and self._feedback_observed(spec):
+            self._track_activity(activity_id, stage="governance_feedback")
             for exp_id in injected:
                 self.client.report_reuse(exp_id, success=success, agent_id=self.agent_id)
             if not success and self_check and outcome.experience_id is not None:

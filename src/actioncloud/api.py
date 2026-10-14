@@ -132,6 +132,9 @@ class ContextRequest(BaseModel):
     similarity_threshold: Optional[float] = None
     context_token_budget: Optional[int] = None
     redundancy_threshold: Optional[float] = None
+    tenant_id: Optional[str] = None
+    federated: bool = False
+    session_id: Optional[str] = None
 
 
 class ReuseReportRequest(BaseModel):
@@ -202,6 +205,8 @@ def search(
     agent_role: Optional[AgentRole] = Query(None, description="Only needed when auth is off"),
     technologies: list[str] = Query([], description="Tech tags added to the query embedding"),
     scope_run_id: Optional[str] = Query(None, description="Only search this run's memories"),
+    tenant_id: Optional[str] = Query(None),
+    federated: bool = Query(False),
     principal: Optional[Principal] = Depends(authenticate),
 ) -> SearchResponse:
     """Governed hybrid search. Visibility is computed for the key's agent."""
@@ -209,6 +214,7 @@ def search(
     results = memory_service.search_memory(
         query=q, limit=limit, min_tier=min_tier, agent_id=agent_id,
         agent_role=role, technologies=technologies, scope_run_id=scope_run_id,
+        tenant_id=tenant_id, federated=federated,
     )
     return SearchResponse(query=q, count=len(results), results=results)
 
@@ -228,6 +234,8 @@ def prepare_context(
     return memory_service.prepare_context(
         query=req.query, agent_id=agent_id, role=role, policy=pol,
         technologies=req.technologies, scope_run_id=req.scope_run_id,
+        tenant_id=req.tenant_id, federated=req.federated,
+        session_id=req.session_id,
     )
 
 
@@ -300,3 +308,42 @@ def delete_agent(agent_id: str, _: Principal = Depends(require_admin)) -> dict:
     return {"agent_id": agent_id, "revoked": True}
 
 
+# --- memory decay ----------------------------------------------------------
+
+@app.post("/admin/decay")
+def trigger_decay(
+    ttl_days: Optional[int] = Query(None, description="Override MEMORY_TTL_DAYS"),
+    decay_days: Optional[int] = Query(None, description="Override MEMORY_DECAY_DAYS"),
+    _: Principal = Depends(require_admin),
+) -> dict:
+    """
+    Manually trigger a memory decay pass.
+
+    Prunes TTL-expired memories and demotes memories not reused within the
+    configured staleness window.  Safe to call at any time — uses FOR UPDATE
+    SKIP LOCKED so concurrent calls won't double-process the same rows.
+    """
+    from .decay import run_decay_pass  # noqa: PLC0415
+    return run_decay_pass(ttl_days=ttl_days, decay_days=decay_days)
+
+
+# --- session memories -------------------------------------------------------
+
+@app.get("/session/{session_id}/memories")
+def get_session_memories(
+    session_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    principal: Optional[Principal] = Depends(authenticate),
+) -> list:
+    """
+    Retrieve all experiences belonging to a session.
+
+    Session memories are all experiences tagged with the given `session_id`,
+    ordered newest-first.  Useful for intra-session context sharing between
+    agents before memories have been promoted from PRIVATE tier.
+    """
+    rows = db.get_session_experiences(session_id, limit=limit)
+    # Strip embedding vectors (not useful to callers, large).
+    for r in rows:
+        r.pop("embedding", None)
+    return rows

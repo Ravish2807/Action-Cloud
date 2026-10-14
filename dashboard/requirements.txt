@@ -1,0 +1,6 @@
+streamlit
+plotly
+pandas
+psycopg[binary,pool]==3.2.3
+pydantic==2.10.4
+python-dotenv
