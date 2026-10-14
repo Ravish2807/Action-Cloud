@@ -33,6 +33,17 @@ class MemorySelectionPolicy:
     ann_candidates: int = 0
     min_tier: MemoryTier = MemoryTier.PRIVATE
 
+    # Confidence calibration: memories above the boost threshold get a ranking
+    # bonus; memories below the penalty threshold are down-ranked but still
+    # returned (unless they are also below min_confidence, in which case they
+    # are filtered out entirely).
+    confidence_boost_threshold: float = 0.80   # High-confidence memories are preferred
+    confidence_penalty_below: float = 0.50     # Low-confidence memories are down-ranked
+
+    # When True, the context builder annotates each memory with its confidence
+    # score so the agent can make an informed decision about trust level.
+    annotate_confidence: bool = True
+
     @classmethod
     def from_env(cls) -> MemorySelectionPolicy:
         return cls(
@@ -45,4 +56,13 @@ class MemorySelectionPolicy:
             min_confidence=float(os.environ.get("MEMORY_MIN_CONFIDENCE", "0.45")),
             ann_candidates=int(os.environ.get("MEMORY_ANN_CANDIDATES", "0")),
             min_tier=MemoryTier(os.environ.get("MEMORY_MIN_TIER", "private")),
+            confidence_boost_threshold=float(
+                os.environ.get("MEMORY_CONFIDENCE_BOOST", "0.80")
+            ),
+            confidence_penalty_below=float(
+                os.environ.get("MEMORY_CONFIDENCE_PENALTY", "0.50")
+            ),
+            annotate_confidence=os.environ.get(
+                "MEMORY_ANNOTATE_CONFIDENCE", "true"
+            ).strip().lower() in {"1", "true", "yes"},
         )

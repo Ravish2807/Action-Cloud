@@ -174,6 +174,24 @@ class OpenAIEmbeddingProvider:
         return _unit([float(x) for x in resp.json()["data"][0]["embedding"]])
 
 
+class SentenceTransformerProvider:
+    """Optional local MiniLM embedding provider (384 dimensions)."""
+    name = "minilm"
+
+    def __init__(self, dim: int = 384, model: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
+        if dim != 384:
+            raise ValueError("MiniLM requires EMBEDDING_DIM=384 and a matching vector migration")
+        self.dim = dim
+        self.model_name = model
+        self._model = None
+
+    def embed(self, text: str) -> List[float]:
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+            self._model = SentenceTransformer(self.model_name)
+        return _unit([float(x) for x in self._model.encode(text or " ").tolist()])
+
+
 @lru_cache(maxsize=8)
 def _provider(name: str, dim: int) -> EmbeddingProvider:
     if name in ("hashing", "mock", "local"):
@@ -183,6 +201,8 @@ def _provider(name: str, dim: int) -> EmbeddingProvider:
         return GeminiEmbeddingProvider(dim=dim)
     if name == "openai":
         return OpenAIEmbeddingProvider(dim=dim)
+    if name in ("minilm", "sentence-transformers"):
+        return SentenceTransformerProvider(dim=dim)
     raise ValueError(f"Unknown embedding provider: {name!r}")
 
 

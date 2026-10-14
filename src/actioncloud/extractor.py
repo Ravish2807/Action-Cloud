@@ -72,10 +72,12 @@ class ExperienceExtractor:
     def extract(self, exp: Experience) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Extract workflow dict and list of triple dicts from an Experience.
-        The mock LLM cannot produce JSON, so it goes straight to the heuristic
-        instead of paying a simulated call that is guaranteed to fail.
+        Mock and benchmark simulator LLMs cannot produce extraction JSON, so
+        they use deterministic extraction directly instead of making calls
+        that are guaranteed to fail and emit noisy fallback warnings.
         """
-        if getattr(self.llm, "model", "").startswith("mock"):
+        model = getattr(self.llm, "model", "")
+        if model.startswith("mock") or model == "sim-agent-v1":
             return heuristic_extract(exp)
         user_prompt = (
             f"Task: {exp.task}\n"

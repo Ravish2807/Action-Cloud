@@ -18,6 +18,9 @@ dependencies = [
   "httpx==0.28.1",
 ]
 
+[project.optional-dependencies]
+minilm = ["sentence-transformers>=3.0"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

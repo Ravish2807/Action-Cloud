@@ -135,3 +135,10 @@ def build_agent(role: AgentRole, **kwargs) -> Agent:
     agent = cls(**kwargs)
     agent.role = role
     return agent
+
+
+def build_agent_auto(task: str, **kwargs) -> Agent:
+    """Choose an agent role from the task using CoordinatorAgent."""
+    from .coordinator import CoordinatorAgent  # noqa: PLC0415
+    coordinator = CoordinatorAgent(llm=kwargs.pop("coordinator_llm", None))
+    return build_agent(coordinator.assign(task)["role"], **kwargs)

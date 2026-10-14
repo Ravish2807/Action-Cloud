@@ -59,6 +59,7 @@ class ActionCloudClient:
         key = api_key or os.environ.get("ACTIONCLOUD_API_KEY")
         headers = {"X-API-Key": key} if key else {}
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout, headers=headers)
+        self.last_store_queued = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -84,6 +85,9 @@ class ActionCloudClient:
         include_own_private: bool = True,
         agent_id: Optional[str] = None,
         agent_role: Optional[AgentRole] = None,
+        session_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        federated: bool = False,
     ) -> list[ExperienceResult]:
         """
         Find prior experiences relevant to a task.
@@ -95,6 +99,10 @@ class ActionCloudClient:
         layer a single point of failure for the entire fleet.
         """
         params: dict[str, Any] = {"q": query, "limit": limit, "min_tier": min_tier.value}
+        if tenant_id is not None:
+            params["tenant_id"] = tenant_id
+        if federated:
+            params["federated"] = "true"
         if include_own_private:
             params["agent_id"] = agent_id or self.agent_id
             # Role makes same-role AGENT-tier memories visible (see VISIBILITY_SQL).
@@ -122,6 +130,7 @@ class ActionCloudClient:
         technologies: Optional[list[str]] = None,
         policy: Any = None,
         scope_run_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """
         Compact, governed memory context for a task (POST /context).
@@ -133,6 +142,7 @@ class ActionCloudClient:
             "role": (agent_role or self.agent_role).value,
             "technologies": technologies or [],
             "scope_run_id": scope_run_id,
+            "session_id": session_id,
         }
         if policy is not None:
             body.update(
@@ -149,7 +159,8 @@ class ActionCloudClient:
         except httpx.HTTPError as e:
             log.warning("context failed (%s) — continuing without memory", e)
             return {"context": "", "injected_experience_ids": [], "injected_task_keys": [],
-                    "context_tokens": 0, "candidate_count": 0, "final_count": 0}
+                    "context_tokens": 0, "candidate_count": 0, "final_count": 0,
+                    "low_confidence": False}
 
     def report_reuse(
         self, experience_id: uuid.UUID, success: bool, agent_id: Optional[str] = None
@@ -190,6 +201,9 @@ class ActionCloudClient:
         retrieved_experience_ids: Optional[list[uuid.UUID]] = None,
         agent_id: Optional[str] = None,
         agent_role: Optional[AgentRole] = None,
+        session_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        federated: bool = False,
     ) -> uuid.UUID:
         """
         Submit a completed experience. Returns immediately (202 from the API).
@@ -218,6 +232,9 @@ class ActionCloudClient:
             "system": system.value,
             "task_key": task_key,
             "retrieved_experience_ids": [str(i) for i in (retrieved_experience_ids or [])],
+            "session_id": session_id,
+            "tenant_id": tenant_id,
+            "federated": federated,
         }
 
         try:
@@ -226,7 +243,9 @@ class ActionCloudClient:
         except httpx.HTTPError as e:
             raise ActionCloudError(f"failed to store experience: {e}") from e
 
-        return uuid.UUID(resp.json()["id"])
+        body = resp.json()
+        self.last_store_queued = bool(body.get("queued", False))
+        return uuid.UUID(body["id"])
 
 
 class InProcessClient:
@@ -245,6 +264,7 @@ class InProcessClient:
         self.service = service or MemoryService(sync_write=True)
         self.agent_id = agent_id
         self.agent_role = agent_role
+        self.last_store_queued = False
 
     def close(self) -> None:
         pass
@@ -258,11 +278,13 @@ class InProcessClient:
     def context(self, query: str, agent_id: Optional[str] = None,
                 agent_role: Optional[AgentRole] = None,
                 technologies: Optional[list[str]] = None, policy: Any = None,
-                scope_run_id: Optional[str] = None) -> dict[str, Any]:
+                scope_run_id: Optional[str] = None,
+                session_id: Optional[str] = None) -> dict[str, Any]:
         return self.service.prepare_context(
             query=query, agent_id=agent_id or self.agent_id,
             role=agent_role or self.agent_role, policy=policy,
             technologies=technologies or [], scope_run_id=scope_run_id,
+            session_id=session_id,
         )
 
     def search(self, query: str, limit: int = 5, min_tier: MemoryTier = MemoryTier.PRIVATE,

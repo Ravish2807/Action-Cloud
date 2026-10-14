@@ -75,17 +75,29 @@ class CompactContextBuilder:
     """
 
     @staticmethod
-    def format_single_memory(idx: int, exp: Dict[str, Any]) -> str:
+    def format_single_memory(
+        idx: int,
+        exp: Dict[str, Any],
+        annotate_confidence: bool = True,
+    ) -> str:
         """
         Compact procedural rendering. When an extracted workflow exists its
         steps ARE the reusable content, so the raw solution text is not
         repeated (it used to be, doubling the tokens for the same steps).
+
+        If `annotate_confidence=True`, a confidence badge is shown so the
+        agent can calibrate its trust level (e.g. "[confidence: 87%]").
         """
         lines = []
         success = exp.get("success", True)
         marker = "WORKED" if success else "FAILED — avoid this approach"
         tier = str(exp.get("tier", "shared")).upper()
-        lines.append(f"### {idx}. [{marker}] [{tier}] {exp.get('task', '')}")
+        confidence = exp.get("confidence")
+        conf_badge = ""
+        if annotate_confidence and confidence is not None:
+            conf_pct = int(float(confidence) * 100)
+            conf_badge = f" [confidence: {conf_pct}%]"
+        lines.append(f"### {idx}. [{marker}] [{tier}]{conf_badge} {exp.get('task', '')}")
 
         wf = exp.get("workflow")
         steps = wf.get("steps", []) if isinstance(wf, dict) else []
@@ -112,15 +124,20 @@ class CompactContextBuilder:
     ) -> Tuple[str, List[uuid.UUID], int, int]:
         """
         Builds a compact memory context.
+
         Returns: (context_string, injected_experience_ids, candidate_count, final_count)
+
+        Confidence-calibrated ranking:
+        - Memories above confidence_boost_threshold get an extra ranking bonus.
+        - Memories below confidence_penalty_below get a ranking penalty (but are
+          still returned unless they are also below min_confidence).
+        - If NO candidate clears the similarity OR confidence thresholds, the
+          function returns an empty context and sets context_str to "".
         """
         if not candidates:
             return "", [], 0, 0
 
-        # 1. Relevance threshold. A missing score is treated as 0.0 (unknown =
-        #    not relevant). If nothing clears the bar we inject NOTHING: an
-        #    irrelevant memory costs prompt tokens and can mislead the agent,
-        #    which is exactly what the threshold exists to prevent.
+        # 1. Relevance + confidence filter.
         relevant = [
             c for c in candidates
             if _relevance(c) >= policy.similarity_threshold
@@ -130,15 +147,26 @@ class CompactContextBuilder:
         if not relevant:
             return "", [], len(candidates), 0
 
-        # 1b. Rank by relevance with a small trust bonus, so between two
-        #     similarly relevant memories the better-governed one wins.
-        relevant.sort(
-            key=lambda c: _relevance(c) + policy.trust_weight * float(c.get("confidence") or 0.0),
-            reverse=True,
-        )
+        # 1b. Confidence-calibrated ranking:
+        #   base_score = relevance + trust_weight * confidence
+        #   boost if confidence >= confidence_boost_threshold
+        #   penalty if confidence < confidence_penalty_below
+        def _calibrated_score(c: Dict[str, Any]) -> float:
+            rel = _relevance(c)
+            conf = float(c.get("confidence") or 0.0)
+            base = rel + policy.trust_weight * conf
+            if conf >= policy.confidence_boost_threshold:
+                base += 0.05  # +5% rank bonus for high-confidence memories
+            elif conf < policy.confidence_penalty_below:
+                base -= 0.05  # -5% rank penalty for low-confidence memories
+            return base
+
+        relevant.sort(key=_calibrated_score, reverse=True)
 
         # 2. Redundancy Filtering
-        non_redundant = filter_redundant_memories(relevant, redundancy_threshold=policy.redundancy_threshold)
+        non_redundant = filter_redundant_memories(
+            relevant, redundancy_threshold=policy.redundancy_threshold
+        )
 
         # 3. Token Budget Allocator & Context Assembly
         selected_ids: List[uuid.UUID] = []
@@ -149,7 +177,10 @@ class CompactContextBuilder:
             if len(selected_ids) >= policy.max_context_memories:
                 break
 
-            block = cls.format_single_memory(len(selected_ids) + 1, c)
+            block = cls.format_single_memory(
+                len(selected_ids) + 1, c,
+                annotate_confidence=policy.annotate_confidence,
+            )
             block_tokens = count_tokens(block)
 
             if current_tokens + block_tokens > policy.context_token_budget and selected_ids:

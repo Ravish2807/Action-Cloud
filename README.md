@@ -16,6 +16,7 @@ ActionCloud lets AI agents learn from each other's work. Agents record what they
 - [Why ActionCloud](#why-actioncloud)
 - [How it works](#how-it-works)
 - [Quickstart](#quickstart)
+- [Live dashboard](#live-dashboard)
 - [Connecting agents](#connecting-agents)
 - [API reference](#api-reference)
 - [Governance model](#governance-model)
@@ -47,6 +48,7 @@ ActionCloud is built around three decisions:
 - **Two interfaces, one service.** A REST API (FastAPI) and an MCP stdio server for Claude Desktop, Cursor and other MCP clients.
 - **Queue or in-request writes.** Amazon SQS with an idempotent worker for production, or synchronous writes for single-node setups. Both run the same ingest pipeline.
 - **Built-in evaluation harness.** 136 tasks across 12 agent roles, ground-truth verification, and ablations. It runs offline in a simulated environment, or against a real LLM.
+- **Live run dashboard.** Streamlit shows agent activity across memory retrieval, LLM response, verification, storage, governance, and completion, with a live stage pipeline and tracked run details.
 
 ---
 
@@ -82,6 +84,66 @@ make setup          # virtualenv + dependencies; creates .env from .env.example
 make up             # Postgres 16 + pgvector and LocalStack (SQS)
 make test           # 106 tests
 ```
+
+### Live dashboard
+
+The dashboard reads run activity from PostgreSQL. Keep the database running, start the dashboard in one terminal, then launch a benchmark in another. The dashboard refreshes every three seconds and shows active tasks by stage, recent agent runs, task results, memory write status, and governance tier.
+
+#### Windows PowerShell
+
+Use Python 3.13 (or another supported Python 3.11+) and Docker Desktop. Run the following from the repository root.
+
+**Terminal 1 — start the local services and apply the activity schema:**
+
+```powershell
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d
+docker compose exec postgres psql -U actioncloud -d actioncloud -v ON_ERROR_STOP=1 -f /docker-entrypoint-initdb.d/007_llm_run_activity.sql
+```
+
+Wait until Postgres is healthy before applying the schema. The schema file is applied automatically when Postgres initializes a new data volume. The explicit command above is safe to repeat and applies it to an existing volume too.
+
+**Terminal 2 — install and start the dashboard:**
+
+```powershell
+if (!(Test-Path .dashboard-venv)) { py -3.13 -m venv .dashboard-venv }
+.\.dashboard-venv\Scripts\python.exe -m pip install -r dashboard\requirements.txt
+.\.dashboard-venv\Scripts\python.exe -m streamlit run dashboard\app.py
+```
+
+Open [http://localhost:8501](http://localhost:8501) and select **Live LLM Flow**. The dashboard uses its own virtual environment to keep Streamlit's web dependencies separate from the API environment.
+
+**Terminal 3 — set up the benchmark environment and run a live demo:**
+
+```powershell
+if (!(Test-Path .venv)) { py -3.13 -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts\run_experiment.py --preset main --seeds 1 --epochs 1 --limit 30 --provider sim --out "$env:TEMP\actioncloud-live-demo"
+```
+
+The `sim` provider runs simulated LLM responses and needs no model API key. The dashboard tracks the benchmark's baseline, flat-memory, and ActionCloud agent tasks as they run. The command saves its report outside the repository. This in-process benchmark needs PostgreSQL; the REST API and queue worker do not need to be running.
+
+For real model calls, configure the matching provider key in `.env` and pass `--provider anthropic`, `--provider gemini`, or `--provider groq`. Real providers may incur usage charges.
+
+#### macOS and Linux
+
+After `make setup` and `make up`, run `make migrate` if you already have a database volume from an earlier checkout. Install the dashboard dependencies in a separate environment and start it:
+
+```bash
+python3 -m venv .dashboard-venv
+./.dashboard-venv/bin/python -m pip install -r dashboard/requirements.txt
+./.dashboard-venv/bin/python -m streamlit run dashboard/app.py
+```
+
+In another terminal, run the demo benchmark (use `--out /tmp/actioncloud-live-demo` to keep its report outside the repository):
+
+```bash
+./.venv/bin/python scripts/run_experiment.py --preset main --seeds 1 --epochs 1 --limit 30 --provider sim --out /tmp/actioncloud-live-demo
+```
+
+The `--limit 30` setting keeps the demo short. Increase it to 100 or remove it to run more tasks. Completed runs remain available in the dashboard after the active task count returns to zero.
+
+To run the API or worker for other workflows, use `make api` and `make worker` in separate terminals. They are not required for this benchmark demo.
 
 **Run the API** (in-request writes, so no worker is needed):
 
@@ -308,7 +370,7 @@ The local stack mirrors managed AWS services, so the same code runs in both plac
 | LocalStack SQS | Amazon SQS (add a dead-letter queue with a redrive policy) |
 | `make api` / `make worker` | Two services (e.g. ECS Fargate): `uvicorn actioncloud.api:app` and `python -m actioncloud.worker` |
 
-Apply the schema with the files in `sql/` in order (`001` → `004`). All migrations after `001` are idempotent (`make migrate` locally).
+Apply the schema with the files in `sql/` in numeric order. All migrations after `001` are idempotent, so `make migrate` can apply them to an existing local database.
 
 **Production checklist**
 
@@ -380,6 +442,7 @@ src/actioncloud/
   benchmark/       Tasks, ground-truth procedures, verifier, simulator, harness
 sql/               Schema and migrations
 scripts/           Experiments, calibration, end-to-end checks
+dashboard/         Streamlit metrics dashboard and live LLM run monitor
 tests/             Unit, integration, API-attack and evaluation tests
 results/           The evaluation run cited above
 ```
