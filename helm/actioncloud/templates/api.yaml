@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "actioncloud.fullname" . }}-api
+  labels:
+    {{- include "actioncloud.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "actioncloud.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "actioncloud.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: api
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "actioncloud.fullname" . }}
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "actioncloud.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "actioncloud.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: 8000}]
+          env:
+            - {name: DB_HOST, value: {{ required "config.dbHost must be configured" .Values.config.dbHost | quote }}}
+            - {name: DB_PORT, value: {{ .Values.config.dbPort | quote }}}
+            - {name: DB_NAME, value: {{ .Values.config.dbName | quote }}}
+            - {name: AWS_REGION, value: {{ .Values.config.awsRegion | quote }}}
+            - {name: QUEUE_NAME, value: {{ .Values.config.queueName | quote }}}
+            - {name: AWS_SECRETS_MANAGER_ARN, value: {{ .Values.config.secretsManagerArn | quote }}}
+            - {name: SYNC_WRITE, value: {{ .Values.config.syncWrite | quote }}}
+            - {name: AUTH_REQUIRED, value: {{ .Values.config.authRequired | quote }}}
+            - {name: LLM_PROVIDER, value: {{ .Values.config.llmProvider | quote }}}
+            - {name: EMBEDDING_PROVIDER, value: {{ .Values.config.embeddingProvider | quote }}}
+            - {name: EMBEDDING_DIM, value: {{ .Values.config.embeddingDim | quote }}}
+            - {name: MEMORY_MIN_CONFIDENCE, value: {{ .Values.config.memoryMinConfidence | quote }}}
+            - {name: MEMORY_SIMILARITY_THRESHOLD, value: {{ .Values.config.memorySimilarityThreshold | quote }}}
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          startupProbe:
+            httpGet: {path: /health/live, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "actioncloud.fullname" . }}-api
+  labels:
+    {{- include "actioncloud.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "actioncloud.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: api
+  ports:
+    - {name: http, port: {{ .Values.api.service.port }}, targetPort: http}

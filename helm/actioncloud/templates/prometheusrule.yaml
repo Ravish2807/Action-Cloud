@@ -1,0 +1,29 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "actioncloud.fullname" . }}
+  labels:
+    release: monitoring
+    {{- include "actioncloud.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: actioncloud.api
+      rules:
+        - alert: ActionCloudHighTaskLatency
+          expr: actioncloud_task_latency_milliseconds > 500
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: ActionCloud task latency is over 500 ms
+            description: The average task latency reported by ActionCloud has remained above 500 ms for five minutes.
+        - alert: ActionCloudQueueOrDatabaseUnavailable
+          expr: up{job=~".*actioncloud.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: ActionCloud metrics endpoint is unavailable
+            description: Prometheus has failed to scrape the ActionCloud metrics endpoint for two minutes.
+{{- end }}

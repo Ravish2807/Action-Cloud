@@ -48,7 +48,10 @@ from ..builder import count_tokens
 from ..llm import LLMResponse, Pricing
 from . import load_procedures, load_tasks
 
-_HEADER_RE = re.compile(r"^###\s+\d+\.\s+\[(?P<marker>[^\]]+)\]\s+\[[A-Z]+\]\s+(?P<task>.+?)\s*$")
+_HEADER_RE = re.compile(
+    r"^###\s+\d+\.\s+\[(?P<marker>[^\]]+)\]\s+\[[A-Z]+\]\s+"
+    r"(?:\[confidence:\s*[\d.]+%\]\s+)?(?P<task>.+?)\s*$"
+)
 _STEP_RE = re.compile(r"^\s+\d+\.\s+(?P<step>.+?)\s*$")
 
 

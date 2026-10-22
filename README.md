@@ -275,6 +275,7 @@ Every endpoint except `/health` requires an agent key, sent as `X-API-Key: ac_�
 | `/experiences/{id}` | GET | Full record, if visible to the caller (otherwise `404`) |
 | `/search` | GET | Governed hybrid search (`q`, `technologies`, `limit`, `min_tier`, `scope_run_id`) |
 | `/metrics` | GET | Aggregate metrics over stored experiences |
+| `/metrics/prometheus` | GET | Prometheus scrape endpoint (internal production credential required) |
 | `/agents` | POST | **Admin:** register `{agent_id, agent_role}`; returns the API key once |
 | `/agents/{id}` | DELETE | **Admin:** revoke an agent's key |
 
@@ -362,26 +363,33 @@ All settings are environment variables; see [`.env.example`](.env.example).
 
 ## Deployment
 
-The local stack mirrors managed AWS services, so the same code runs in both places:
+The local stack runs the API and queue worker in containers alongside PostgreSQL and LocalStack. For production, this repository includes an EKS deployment chart, Terraform infrastructure, and GitHub Actions workflows:
 
 | Local | AWS |
 | :--- | :--- |
 | `pgvector/pgvector:pg16` container | Amazon RDS for PostgreSQL 16 with the `vector` extension |
-| LocalStack SQS | Amazon SQS (add a dead-letter queue with a redrive policy) |
-| `make api` / `make worker` | Two services (e.g. ECS Fargate): `uvicorn actioncloud.api:app` and `python -m actioncloud.worker` |
+| LocalStack SQS | Amazon SQS with server-side encryption and a dead-letter queue |
+| `api` and `worker` Compose services | EKS API and worker Deployments, with CPU-based API autoscaling |
 
-Apply the schema with the files in `sql/` in numeric order. All migrations after `001` are idempotent, so `make migrate` can apply them to an existing local database.
+The local container stack starts with `docker compose up --build -d`. The Helm release runs the SQL migration Job before deploying the API and worker. Production uses an RDS-managed master credential only for migrations; API and worker pods receive a separate, least-privilege database user from Secrets Manager through IRSA. `/health` reports dependency readiness and `/health/live` is the process liveness probe. `/metrics/prometheus` is protected by a bearer token in production; the existing authenticated JSON `/metrics` route remains available to API clients.
 
-**Production checklist**
+### Provision the AWS environment
 
-- [ ] Set `ACTIONCLOUD_ADMIN_KEY` from a secret store, and keep `AUTH_REQUIRED=true`
-- [ ] Terminate TLS in front of the API; keys are bearer credentials
-- [ ] Unset `AWS_ENDPOINT_URL` and give the worker an IAM role scoped to the queue
-- [ ] Configure an SQS dead-letter queue
-- [ ] Choose an embedding provider, then run `make calibrate` and set `MEMORY_SIMILARITY_THRESHOLD`
-- [ ] Put `/health` behind your load balancer's health check
+Terraform under [`infra/terraform`](infra/terraform) creates a two-AZ VPC, EKS cluster and managed node group, private Multi-AZ RDS PostgreSQL, encrypted SQS queue and DLQ, ECR, Secrets Manager credentials, IRSA roles for the application, migrations, AWS Load Balancer Controller and Cluster Autoscaler, CloudWatch logs, and optional ACM/Route 53 setup. Cluster Autoscaler can grow the managed node group from two to six workers; the API HPA scales API pods by CPU within its configured range.
 
-A Dockerfile and infrastructure-as-code are not included yet.
+The default configuration creates billable AWS resources, including an EKS control plane, two NAT gateways, two on-demand nodes, and Multi-AZ RDS. Review the plan and AWS pricing for your region before applying. This repository does not apply Terraform or create AWS resources for you.
+
+1. Install Terraform 1.13+, AWS CLI, Helm 3, and kubectl. Configure AWS credentials for the account and region where you want the stack.
+2. Create a dedicated, encrypted, versioned S3 bucket for Terraform state. Copy `infra/terraform/backend.tf.example` to `infra/terraform/backend.tf` and fill in that bucket. The state contains generated credentials; keep it private and out of git.
+3. Create `infra/terraform/terraform.tfvars` (do not commit it). Set `github_repository = "OWNER/REPOSITORY"`. For a public API, also set `api_hostname` and `route53_zone_id` for an existing Route 53 zone. Set `cluster_public_access_cidrs` to the trusted egress CIDR used for cluster administration. The default allows only loopback, so the EKS API is not publicly reachable until you set an explicit CIDR. GitHub-hosted runner IPs change; use a self-hosted runner in the VPC or a controlled deployment network for a restricted EKS endpoint.
+4. From `infra/terraform`, run `terraform init`, `terraform fmt -check`, `terraform validate`, and `terraform plan`. Inspect the resource list and costs before choosing to run `terraform apply`.
+5. After apply, copy these Terraform outputs into GitHub repository variables: `aws_region` → `AWS_REGION`, `cluster_name` → `EKS_CLUSTER_NAME`, `ecr_repository_url` → `ECR_REPOSITORY`, `database_endpoint` → `DATABASE_ENDPOINT`, `queue_name` → `QUEUE_NAME`, `application_secret_arn` → `APPLICATION_SECRET_ARN`, `database_secret_arn` → `DATABASE_MASTER_SECRET_ARN`, `runtime_role_arn` → `RUNTIME_ROLE_ARN`, `migration_role_arn` → `MIGRATION_ROLE_ARN`, `load_balancer_controller_role_arn` → `LOAD_BALANCER_ROLE_ARN`, `cluster_autoscaler_role_arn` → `CLUSTER_AUTOSCALER_ROLE_ARN`, `github_deploy_role_arn` → `AWS_DEPLOY_ROLE_ARN`, `api_certificate_arn` → `ACM_CERTIFICATE_ARN`, and `route53_zone_id` → `ROUTE53_ZONE_ID`. Set `API_HOSTNAME` to the same hostname used in Terraform, or leave the hostname and certificate variables empty to omit public ingress.
+6. Create a GitHub Environment named `production`, add required reviewers, and allow only the intended deployment branch. The deploy role trusts the `production` environment through GitHub OIDC; no static AWS access keys are stored in GitHub.
+7. Create a self-hosted GitHub Actions runner inside the VPC, label it `actioncloud-aws`, and set the GitHub repository variable `DEPLOY_RUNNER=actioncloud-aws`. This lets the protected workflow reach the private EKS API without opening it to changing GitHub-hosted runner IPs. Open a pull request to run CI. After merging to `main`, the workflow builds an immutable image, installs the AWS Load Balancer Controller, Cluster Autoscaler, metrics-server and Prometheus/Grafana, then applies the Helm release. The API and worker use max-surge rolling updates; Helm waits for readiness and automatically rolls back a failed application upgrade. The workflow points the optional Route 53 record at the ALB after the API becomes healthy.
+
+The API hostname and certificate are optional. Grafana and Prometheus stay internal; connect with `kubectl port-forward` when you need to view them. Prometheus collects service metrics and evaluates the included alerts; configure an Alertmanager receiver to deliver notifications. The API HPA scales pods by CPU, and Cluster Autoscaler scales worker nodes when pods cannot be scheduled. These defaults are starting points; tune replica counts, thresholds, and instance sizes against measured workload and cost. The project does not claim a specific availability SLA or compliance certification; configure those requirements for your account and organization.
+
+After deployment, retrieve the generated administrator key from the application secret using an authorized operator role, then use it to register agents through `POST /agents`. Keep this key in a secure secret store. See [`.env.example`](.env.example) for the local configuration and [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for deployment details.
 
 ---
 
@@ -465,6 +473,6 @@ results/           The evaluation run cited above
 - **Scale:** exact scoring (the default) grows linearly with the number of visible memories, to about 240 ms at 5,000. Beyond a few thousand memories, set `MEMORY_ANN_CANDIDATES` so the HNSW index pre-selects candidates.
 - **Collusion:** governance limits but does not stop large colluding groups. In simulation, about 30 % adversarial agents bring ActionCloud down to no-memory performance.
 - **Keys:** there is no rate limiting or key expiry; a leaked key works until it is revoked.
-- **Packaging:** no Dockerfile, CI pipeline or license file yet.
+- **Packaging:** the API/worker Docker image, CI checks, and EKS deployment scaffolding are included. The repository still has no license file.
 - **External benchmark datasets:** the current 136-task suite is built-in. A future roadmap target is adapting standard external agent benchmarks (e.g. SWE-bench for GitHub issues, ToolBench for tool trajectories) to benchmark cross-agent memory reuse across clustered open-source repositories.
 

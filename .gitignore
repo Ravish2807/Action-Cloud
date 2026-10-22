@@ -1,6 +1,16 @@
 # Secrets — never commit
 .env
 
+# Terraform state, provider cache and user-specific variables
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+infra/terraform/backend.tf
+infra/terraform/crash.log
+.tools/
+
 # Python
 __pycache__/
 *.py[cod]

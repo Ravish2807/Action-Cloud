@@ -1,0 +1,122 @@
+name: Deploy ActionCloud to EKS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actioncloud-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+      DATABASE_ENDPOINT: ${{ vars.DATABASE_ENDPOINT }}
+      QUEUE_NAME: ${{ vars.QUEUE_NAME }}
+      APPLICATION_SECRET_ARN: ${{ vars.APPLICATION_SECRET_ARN }}
+      DATABASE_MASTER_SECRET_ARN: ${{ vars.DATABASE_MASTER_SECRET_ARN }}
+      RUNTIME_ROLE_ARN: ${{ vars.RUNTIME_ROLE_ARN }}
+      MIGRATION_ROLE_ARN: ${{ vars.MIGRATION_ROLE_ARN }}
+      LOAD_BALANCER_ROLE_ARN: ${{ vars.LOAD_BALANCER_ROLE_ARN }}
+      CLUSTER_AUTOSCALER_ROLE_ARN: ${{ vars.CLUSTER_AUTOSCALER_ROLE_ARN }}
+      ACM_CERTIFICATE_ARN: ${{ vars.ACM_CERTIFICATE_ARN }}
+      API_HOSTNAME: ${{ vars.API_HOSTNAME }}
+      ROUTE53_ZONE_ID: ${{ vars.ROUTE53_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push immutable image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+      - name: Install AWS Load Balancer Controller
+        run: |
+          VPC_ID=$(aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update eks
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            --version 3.6.0 --namespace kube-system \
+            --set clusterName="$EKS_CLUSTER_NAME" --set region="$AWS_REGION" --set vpcId="$VPC_ID" \
+            --set serviceAccount.create=true --set serviceAccount.name=aws-load-balancer-controller \
+            --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$LOAD_BALANCER_ROLE_ARN" \
+            --wait --timeout 10m
+      - name: Install Cluster Autoscaler
+        run: |
+          helm repo add autoscaler https://kubernetes.github.io/autoscaler
+          helm repo update autoscaler
+          helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \
+            --version 9.59.0 --namespace kube-system \
+            --set cloudProvider=aws --set awsRegion="$AWS_REGION" \
+            --set autoDiscovery.clusterName="$EKS_CLUSTER_NAME" \
+            --set image.tag=v1.36.1 \
+            --set rbac.serviceAccount.create=true \
+            --set rbac.serviceAccount.name=cluster-autoscaler \
+            --set rbac.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$CLUSTER_AUTOSCALER_ROLE_ARN" \
+            --wait --timeout 10m
+      - name: Install metrics server and monitoring
+        run: |
+          kubectl apply -f infra/kubernetes/storageclass-gp3.yaml
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update metrics-server prometheus-community
+          helm upgrade --install metrics-server metrics-server/metrics-server --version 3.14.0 \
+            --namespace kube-system --set replicas=2 --wait --timeout 10m
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --version 92.10.0 \
+            --namespace monitoring --create-namespace -f infra/monitoring/values.yaml --wait --timeout 15m
+      - name: Create Prometheus scrape credential
+        env:
+          APP_SECRET_ARN: ${{ vars.APPLICATION_SECRET_ARN }}
+        run: |
+          TOKEN=$(aws secretsmanager get-secret-value --secret-id "$APP_SECRET_ARN" --query SecretString --output text | python -c 'import json,sys; print(json.load(sys.stdin)["prometheus_metrics_token"])')
+          kubectl create namespace actioncloud --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic actioncloud-prometheus-token --namespace actioncloud \
+            --from-literal=token="$TOKEN" --dry-run=client -o yaml | kubectl apply -f -
+      - name: Deploy API, worker, and migrations
+        run: |
+          helm upgrade --install actioncloud helm/actioncloud --namespace actioncloud --create-namespace \
+            --set image.repository="$ECR_REPOSITORY" --set image.tag="${GITHUB_SHA}" \
+            --set config.awsRegion="$AWS_REGION" --set config.dbHost="$DATABASE_ENDPOINT" \
+            --set config.queueName="$QUEUE_NAME" \
+            --set config.secretsManagerArn="$APPLICATION_SECRET_ARN" \
+            --set config.databaseMasterSecretArn="$DATABASE_MASTER_SECRET_ARN" \
+            --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn="$RUNTIME_ROLE_ARN" \
+            --set migration.serviceAccountRoleArn="$MIGRATION_ROLE_ARN" \
+            --set config.host="$API_HOSTNAME" --set config.certificateArn="$ACM_CERTIFICATE_ARN" \
+            --atomic --history-max 10 --wait --timeout 15m
+      - name: Point Route 53 hostname at the ALB
+        if: ${{ vars.API_HOSTNAME != '' && vars.ROUTE53_ZONE_ID != '' }}
+        run: |
+          for attempt in $(seq 1 30); do
+            ALB_DNS=$(kubectl get ingress actioncloud-actioncloud --namespace actioncloud -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [[ -n "$ALB_DNS" ]]; then break; fi
+            sleep 10
+          done
+          test -n "$ALB_DNS"
+          export ALB_DNS API_HOSTNAME ROUTE53_ZONE_ID
+          ALB_ZONE_ID=$(aws elbv2 describe-load-balancers --output json | python -c 'import json,os,sys; x=json.load(sys.stdin); print(next(lb["CanonicalHostedZoneId"] for lb in x["LoadBalancers"] if lb["DNSName"] == os.environ["ALB_DNS"]))')
+          export ALB_ZONE_ID
+          python -c 'import json,os; json.dump({"Comment":"ActionCloud ALB alias","Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":os.environ["API_HOSTNAME"],"Type":"A","AliasTarget":{"HostedZoneId":os.environ["ALB_ZONE_ID"],"DNSName":os.environ["ALB_DNS"],"EvaluateTargetHealth":True}}}]}, open("route53-change.json","w"))'
+          aws route53 change-resource-record-sets --hosted-zone-id "$ROUTE53_ZONE_ID" --change-batch file://route53-change.json
