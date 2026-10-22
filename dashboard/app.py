@@ -25,6 +25,8 @@ import streamlit as st
 # from the dashboard/ directory.
 # ---------------------------------------------------------------------------
 _repo_root = Path(__file__).resolve().parents[1]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 if str(_repo_root / "src") not in sys.path:
     sys.path.insert(0, str(_repo_root / "src"))
 
@@ -50,6 +52,11 @@ try:
     import plotly.express as px
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+    from dashboard.matrices import (
+        build_confidence_matrix,
+        build_relevance_outcome_matrix,
+        build_tradeoff_matrix,
+    )
 except ImportError:
     st.error(
         "Missing dependencies. Run: `pip install streamlit plotly pandas psycopg[binary]`"
@@ -94,6 +101,7 @@ page = st.sidebar.radio(
     "Navigate",
     [
         "Live LLM Flow",
+        "Performance Matrices",
         "📊 Overview",
         "💰 Token Savings",
         "🏛 Governance Flow",
@@ -164,6 +172,62 @@ def load_transitions_df(run_id: str | None, limit: int = 200):
         rows = cur.fetchall()
     if not rows:
         return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_tradeoff_outcomes(run_id: str | None):
+    """Load task-family averages for paired benchmark arm comparisons."""
+    with db.get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.run_id, e.system::text AS system, e.task_key,
+                   AVG((e.tokens_input + e.tokens_output)::double precision) AS tokens,
+                   AVG(e.execution_time_ms::double precision) AS latency_ms
+            FROM experiences e
+            WHERE e.task_key IS NOT NULL
+              AND (%(run_id)s::text IS NULL OR e.run_id = %(run_id)s::text)
+            GROUP BY e.run_id, e.system, e.task_key
+            """,
+            {"run_id": run_id or None},
+        )
+        rows = cur.fetchall()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_confidence_rows(run_id: str | None):
+    with db.get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT tier::text AS tier, confidence::double precision AS confidence
+            FROM experiences e
+            WHERE (%(run_id)s::text IS NULL OR e.run_id = %(run_id)s::text)
+            """,
+            {"run_id": run_id or None},
+        )
+        rows = cur.fetchall()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_relevance_outcomes(run_id: str | None):
+    with db.get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.success,
+                   EXISTS (
+                       SELECT 1
+                       FROM unnest(e.retrieved_experience_ids) AS selected(id)
+                       JOIN experiences memory ON memory.id = selected.id
+                       WHERE e.task_key IS NOT NULL AND memory.task_key = e.task_key
+                   ) AS same_family_retrieved
+            FROM experiences e
+            WHERE (%(run_id)s::text IS NULL OR e.run_id = %(run_id)s::text)
+            """,
+            {"run_id": run_id or None},
+        )
+        rows = cur.fetchall()
     return pd.DataFrame(rows)
 
 
@@ -362,6 +426,55 @@ if page == "Live LLM Flow":
     st.title("LLM Run Monitor")
     st.caption("Follow tracked agent tasks from memory retrieval through their final memory tier.")
     render_live_llm_flow(rid)
+
+
+if page == "Performance Matrices":
+    st.title("ActionCloud performance matrices")
+    st.caption("Explore benchmark trade-offs, memory confidence, and retrieval outcomes. Matrix queries are cached for 30 seconds; click Refresh Data to force an update.")
+
+    tradeoff_data = load_tradeoff_outcomes(rid)
+    confidence_data = load_confidence_rows(rid)
+    relevance_data = load_relevance_outcomes(rid)
+
+    st.subheader("Token savings vs. latency")
+    tradeoff_fig = build_tradeoff_matrix(tradeoff_data)
+    if tradeoff_fig is None:
+        if tradeoff_data.empty:
+            st.info("No benchmark outcomes yet. Run the main benchmark to populate this matrix.")
+        else:
+            st.info("This comparison needs matching baseline and memory-arm runs. Clear the run_id filter to compare complete benchmark arms.")
+    else:
+        st.plotly_chart(
+            tradeoff_fig,
+            width="stretch",
+            alt="Task-family counts grouped by token and latency reduction bands for flat memory and ActionCloud versus baseline.",
+        )
+    st.caption("Each cell counts paired task families in the selected token and latency reduction bands. Positive reductions mean fewer tokens or lower latency than baseline.")
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Confidence by governance tier")
+        confidence_fig = build_confidence_matrix(confidence_data)
+        if confidence_fig is None:
+            st.info("No memory confidence data yet.")
+        else:
+            st.plotly_chart(
+                confidence_fig,
+                width="stretch",
+                alt="Memory counts by governance tier and confidence score band.",
+            )
+    with right:
+        st.subheader("Retrieval relevance and outcome")
+        relevance_fig = build_relevance_outcome_matrix(relevance_data)
+        if relevance_fig is None:
+            st.info("No retrieval outcome data yet.")
+        else:
+            st.plotly_chart(
+                relevance_fig,
+                width="stretch",
+                alt="Task counts grouped by same-family memory retrieval and task success or failure.",
+            )
+        st.caption("This compares whether a same-family memory was retrieved with the task result. It is not a candidate-level confusion matrix.")
 
 
 # Page: Overview
