@@ -18,3 +18,11 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Private project reports; local copies stay under local-private/.
+D14_Report/
+paper/
+local-private/
+/ActionCloud_Project_Report.docx
+/ActionCloud_Review1_Presentation.tex
+.tools/
