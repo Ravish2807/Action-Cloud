@@ -11,6 +11,13 @@ infra/terraform/backend.tf
 infra/terraform/crash.log
 .tools/
 
+# Private project reports and manuscript source. Keep local copies in this folder.
+D14_Report/
+paper/
+local-private/
+/ActionCloud_Project_Report.docx
+/ActionCloud_Review1_Presentation.tex
+
 # Python
 __pycache__/
 *.py[cod]
