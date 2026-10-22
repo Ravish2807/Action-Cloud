@@ -1,0 +1,15 @@
+aws_region = "us-east-1"
+project_name = "actioncloud"
+environment = "production"
+
+# Must match the repository that contains .github/workflows/deploy.yml.
+github_repository = "OWNER/REPOSITORY"
+github_deploy_environment = "production"
+
+# Optional public API/TLS setup. Both values are required together.
+# api_hostname = "api.example.com"
+# route53_zone_id = "Z0123456789EXAMPLE"
+
+# Replace this with the static egress CIDR for a trusted deployment runner or
+# VPN. The Terraform default intentionally does not expose the EKS API publicly.
+cluster_public_access_cidrs = ["YOUR_TRUSTED_RUNNER_EGRESS_IP/32"]

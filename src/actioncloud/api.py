@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import hmac
 import logging
 import uuid
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
+from prometheus_fastapi_instrumentator import Instrumentator
+from starlette.responses import Response
 
 from . import auth, db, queue
 from .auth import Principal
 from .config import settings
 from .policy import MemorySelectionPolicy
+from .prometheus_metrics import ActionCloudMetricsCollector
 from .schema import AgentRole, ExperienceCreate, ExperienceResult, MemoryTier
 from .service import memory_service
 
@@ -34,6 +40,9 @@ app = FastAPI(
         "agent_id and role are taken from the key."
     ),
 )
+
+Instrumentator(excluded_handlers=["/metrics/prometheus"]).instrument(app)
+REGISTRY.register(ActionCloudMetricsCollector())
 
 
 # --------------------------------------------------------------------------
@@ -152,8 +161,8 @@ class AgentCreateRequest(BaseModel):
 # Routes
 # --------------------------------------------------------------------------
 
-@app.get("/health")
-def health() -> dict:
+@app.get("/health", response_model=None)
+def health() -> dict | JSONResponse:
     """Dependency status. Unauthenticated so load balancers can probe it."""
     db_ok = db.health_check()
     if memory_service.sync_write:
@@ -167,7 +176,7 @@ def health() -> dict:
             queue_ok = False
 
     healthy = db_ok and queue_ok is not False
-    return {
+    body = {
         "status": "healthy" if healthy else "degraded",
         "database": db_ok,
         "queue": queue_ok,
@@ -175,6 +184,13 @@ def health() -> dict:
         "auth_required": settings.auth_required,
         "mode": "local" if settings.is_local else "aws",
     }
+    return body if healthy else JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=body)
+
+
+@app.get("/health/live")
+def liveness() -> dict[str, str]:
+    """Process liveness probe; dependency readiness is reported by /health."""
+    return {"status": "alive"}
 
 
 @app.post("/experiences", response_model=StoreResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -287,6 +303,15 @@ def stats(run_id: Optional[str] = None, _: Optional[Principal] = Depends(authent
 @app.get("/metrics")
 def get_metrics(run_id: Optional[str] = None, _: Optional[Principal] = Depends(authenticate)) -> dict:
     return memory_service.get_metrics(run_id)
+
+
+@app.get("/metrics/prometheus", include_in_schema=False)
+def prometheus_metrics(authorization: Optional[str] = Header(None)) -> Response:
+    """Prometheus scrape endpoint; /metrics remains the JSON API contract."""
+    metrics_token = settings.prometheus_metrics_token
+    if metrics_token and not hmac.compare_digest(authorization or "", f"Bearer {metrics_token}"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid metrics credential")
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # --- admin -----------------------------------------------------------------

@@ -1,0 +1,56 @@
+image:
+  repository: REPLACE_WITH_ECR_REPOSITORY
+  tag: latest
+  pullPolicy: IfNotPresent
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount:
+  create: true
+  annotations: {}
+migration:
+  serviceAccountName: actioncloud-migration
+  serviceAccountRoleArn: ""
+api:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 384Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  service:
+    type: ClusterIP
+    port: 8000
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+worker:
+  replicas: 1
+  resources:
+    requests: {cpu: 200m, memory: 384Mi}
+    limits: {cpu: "1", memory: 1Gi}
+config:
+  awsRegion: us-east-1
+  queueName: actioncloud-experiences
+  secretsManagerArn: ""
+  databaseMasterSecretArn: ""
+  dbHost: ""
+  dbPort: "5432"
+  dbName: actioncloud
+  syncWrite: "false"
+  authRequired: "true"
+  llmProvider: sim
+  embeddingProvider: hashing
+  embeddingDim: "1536"
+  memoryMinConfidence: "0.45"
+  memorySimilarityThreshold: "0.30"
+  host: ""
+  certificateArn: ""
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    tokenSecretName: actioncloud-prometheus-token
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

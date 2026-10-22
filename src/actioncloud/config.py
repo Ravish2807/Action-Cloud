@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_PROJECT_ROOT / ".env")
 
+from .secrets import load_secret_environment  # noqa: E402
+
+load_secret_environment()
+
 
 def _env(key: str, default: str) -> str:
     return os.environ.get(key, default)
@@ -64,6 +68,9 @@ class Settings:
     # Separate key for registering / revoking agents (POST/DELETE /agents).
     admin_key: str | None = field(
         default_factory=lambda: os.environ.get("ACTIONCLOUD_ADMIN_KEY") or None
+    )
+    prometheus_metrics_token: str | None = field(
+        default_factory=lambda: os.environ.get("PROMETHEUS_METRICS_TOKEN") or None
     )
 
     # A full DATABASE_URL (what the README's MCP config sets) wins over the

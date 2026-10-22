@@ -1,0 +1,12 @@
+# Copy into backend.tf and replace bucket/key/region before running Terraform.
+# The state includes generated database/API credentials. Keep it encrypted,
+# versioned, access-controlled, and out of git.
+terraform {
+  backend "s3" {
+    bucket       = "REPLACE_WITH_VERSIONED_TERRAFORM_STATE_BUCKET"
+    key          = "actioncloud/production/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

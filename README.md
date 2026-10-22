@@ -1,29 +1,43 @@
 # ActionCloud
 
-ActionCloud is a governed shared-memory service for AI agent fleets. Agents retrieve proven procedures before tasks, store reusable experiences, and report whether reused memories worked. PostgreSQL with pgvector stores the memories; FastAPI and MCP expose them to agents.
+ActionCloud is a governed shared-memory service for AI agent fleets. Agents can retrieve proven procedures before work, store new experiences, and report whether reused memories succeeded. PostgreSQL with pgvector stores memories; the governance layer controls their visibility and confidence.
 
 ## Project status
 
-This beta branch contains the API, MCP server, local Docker Compose stack, simulated evaluation harness, and live Streamlit run dashboard. The evaluation uses simulated agents, not a real-LLM study. AWS EKS deployment work is in [PR #2](https://github.com/Ravish2807/Action-Cloud/pull/2); no AWS resources have been provisioned.
+The repository includes a local Docker Compose stack, FastAPI and MCP interfaces, a Streamlit dashboard, a simulated evaluation harness, and production deployment infrastructure for AWS EKS. The cloud infrastructure and deployment workflow are implemented; AWS resources are **not provisioned by this repository**. The published evaluation uses simulated agents, not a real-LLM study.
 
-## Local quick start
+## Run locally
 
-Prerequisites: Docker Desktop and Python 3.11 or newer. Start services in PowerShell from the repository root:
+Prerequisites: Docker Desktop and Python 3.11 or newer. From the repository root:
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
 docker compose up --build -d
-Invoke-RestMethod http://localhost:8000/health
 ```
 
-For the live UI demo, start Streamlit in a second terminal and run the short simulated workload in a third. Follow [dashboard/README.md](dashboard/README.md) for the complete commands and screenshots/metrics views.
+Then use two more PowerShell terminals to start the dashboard and a short simulated benchmark. The benchmark creates live run records for the dashboard and writes its report under your temporary directory.
 
-## Guides
+```powershell
+if (!(Test-Path .dashboard-venv)) { py -3.13 -m venv .dashboard-venv }
+.\.dashboard-venv\Scripts\python.exe -m pip install -r dashboard\requirements.txt
+.\.dashboard-venv\Scripts\python.exe -m streamlit run dashboard\app.py
+```
 
-- [Live dashboard demo](dashboard/README.md)
+```powershell
+if (!(Test-Path .venv)) { py -3.13 -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts\run_experiment.py --preset main --seeds 1 --epochs 1 --limit 30 --provider sim --out "$env:TEMP\actioncloud-live-demo"
+```
+
+Open [http://localhost:8501](http://localhost:8501), then select **Live LLM Flow** to watch task stages or **Performance Matrices** to view benchmark metrics. The local run uses simulated model responses and needs no model API key. See [dashboard/README.md](dashboard/README.md) for the full walkthrough and [infra/README.md](infra/README.md) for cloud deployment and its local validation steps.
+
+## Project guides
+
+- [Dashboard and live demo](dashboard/README.md)
+- [AWS EKS deployment](infra/README.md)
 - [Implementation notes](IMPLEMENTATION.md)
 - [External benchmark roadmap](docs/external_benchmarks_roadmap.md)
 
-## Private project files
+## Security and private project files
 
-Never commit `.env`, Terraform state, or `*.tfvars`. The `D14_Report/` and `paper/` folders, plus the root project report and review presentation, are excluded from new commits. Keep local copies under `local-private/`.
+Never commit `.env`, Terraform state, or `*.tfvars` files. The `D14_Report/` and `paper/` folders, plus the root project report and review presentation, are excluded from new commits. Their local copies are under `local-private/`.

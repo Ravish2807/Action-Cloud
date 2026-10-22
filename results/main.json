@@ -1,5 +1,5 @@
 {
- "experiment_id": "exp-4a290198",
+ "experiment_id": "exp-03877442",
  "provider": "sim",
  "seeds": [
   1
@@ -138,7 +138,7 @@
     "sd": 0.0
    },
    "avg_latency_ms": {
-    "mean": 7006.2,
+    "mean": 7005.7,
     "sd": 0.0
    },
    "total_tokens": {
@@ -228,7 +228,7 @@
     "sd": 0.0
    },
    "latency_reduction_pct": {
-    "mean": -0.15,
+    "mean": -0.14,
     "sd": 0.0
    },
    "success_rate_delta_pp": {
@@ -268,7 +268,7 @@
      "token_budget": 1000,
      "feedback_rate": 0.7
     },
-    "run_id": "exp-4a290198-baseline-s1",
+    "run_id": "exp-03877442-baseline-s1",
     "seed": 1,
     "metrics": {
      "total_tasks": 30,
@@ -310,7 +310,7 @@
      "token_budget": 1000,
      "feedback_rate": 0.7
     },
-    "run_id": "exp-4a290198-flat_memory-s1",
+    "run_id": "exp-03877442-flat_memory-s1",
     "seed": 1,
     "metrics": {
      "total_tasks": 30,
@@ -326,7 +326,7 @@
      "total_tokens_output": 25110,
      "total_tokens": 30796,
      "avg_tokens_per_task": 1026.5,
-     "avg_latency_ms": 7006.2,
+     "avg_latency_ms": 7005.7,
      "total_cost_usd": 0.393708,
      "cost_per_success_usd": 0.019685,
      "poisoned_injection_pct": 22.22,
@@ -351,7 +351,7 @@
      "token_budget": 1000,
      "feedback_rate": 0.7
     },
-    "run_id": "exp-4a290198-actioncloud-s1",
+    "run_id": "exp-03877442-actioncloud-s1",
     "seed": 1,
     "metrics": {
      "total_tasks": 30,

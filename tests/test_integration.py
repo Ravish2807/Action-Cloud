@@ -229,11 +229,17 @@ def test_ann_mode_falls_back_when_neighbours_are_invisible(run_id):
     from actioncloud.embeddings import experience_embedding_text, get_embedding_provider
 
     svc = MemoryService(sync_write=True)
-    mine = svc.store_experience(_create(run_id, task="Rotate the RDS master password with Secrets Manager",
+    author = f"ann-fallback-{uuid.uuid4().hex[:8]}"
+    hidden_author = f"ann-hidden-{uuid.uuid4().hex[:8]}"
+    query = f"Rotate AWS RDS credentials for isolated test {uuid.uuid4().hex}"
+    svc.store_experience(_create(run_id, agent_id=hidden_author, task=query,
+                                 agent_role=AgentRole.DEPLOYMENT, technologies=["aws", "rds"],
+                                 task_key="rds"))
+    mine = svc.store_experience(_create(run_id, agent_id=author,
+                                        task=f"{query} while keeping the service available",
                                         technologies=["aws", "rds"], task_key="rds"))["id"]
-    vec = get_embedding_provider().embed(experience_embedding_text(
-        "Rotate the RDS master password with Secrets Manager", ["aws", "rds"]))
-    rows = db.hybrid_search_experiences("Rotate the RDS master password with Secrets Manager", vec,
-                                        limit=5, agent_id="author", agent_role="coding",
+    vec = get_embedding_provider().embed(experience_embedding_text(query, ["aws", "rds"]))
+    rows = db.hybrid_search_experiences(query, vec,
+                                        limit=5, agent_id=author, agent_role="coding",
                                         ann_candidates=1)   # top-1 neighbour may be anyone's
     assert str(mine) in {str(r["id"]) for r in rows}
