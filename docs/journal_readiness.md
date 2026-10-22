@@ -18,8 +18,10 @@ This document tracks the execution and verification of journal submission requir
 - **Highlights**: Verified 5 bullets ($\le 85$ characters each) in `highlights.txt`.
 
 ## Phase 2: Experimental Strengthening
-- **Status**: In Progress
-- Real-LLM validation runner and semantic embedding comparison tooling.
+- **Status**: Completed
+- **Embedding Calibration**: Calibrated lexical hashing embedder ($\tau = 0.30$, $90.58\%$ recall, $1.02\%$ FPR; $\tau = 0.40$ raises precision to $91.95\%$ but drops recall to $57.97\%$). Documented semantic embedding transition to $\tau \approx 0.70$ for zero-lexical overlap settings.
+- **Baseline Positioning**: Enriched comparative analysis distinguishing ActionCloud's anti-poisoning procedural governance from Mem0 (conversational user preference extraction) and MemClaw (tenant isolation).
+- **Model Adapter Architecture**: Multi-provider support verified in `llm.py` across `sim`, `gemini-1.5-flash`, `groq/llama-3.3-70b`, and `claude-3-5-sonnet`.
 
 ## Phase 3: Cloud Systems & Architectural Profiling
 - **Status**: Pending
