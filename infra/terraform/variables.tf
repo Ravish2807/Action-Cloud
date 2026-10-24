@@ -26,6 +26,10 @@ variable "database_storage_gb" {
   type    = number
   default = 50
 }
+variable "database_backup_retention_days" {
+  type    = number
+  default = 7
+}
 variable "database_multi_az" {
   type    = bool
   default = true
@@ -33,6 +37,10 @@ variable "database_multi_az" {
 variable "node_instance_types" {
   type    = list(string)
   default = ["m7i.large"]
+}
+variable "node_group_name_suffix" {
+  type    = string
+  default = "workers"
 }
 variable "node_min_size" {
   type    = number

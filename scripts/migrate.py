@@ -32,7 +32,11 @@ def main() -> int:
         )
         master = json.loads(response["SecretString"])
         dsn = make_conninfo(
-            host=master["host"], port=master.get("port", 5432), dbname=master.get("dbname", "actioncloud"),
+            # RDS-managed master secrets contain username/password only; the
+            # endpoint and database name are supplied by the deployment config.
+            host=master.get("host", settings.db_host),
+            port=master.get("port", settings.db_port),
+            dbname=master.get("dbname", settings.db_name),
             user=master["username"], password=master["password"], sslmode="require",
         )
         runtime_role = settings.db_user
