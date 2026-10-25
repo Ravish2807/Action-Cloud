@@ -2,7 +2,9 @@
 
 ActionCloud includes Terraform for AWS infrastructure, a Helm chart for the API and worker, and a GitHub Actions deployment workflow. The default architecture uses EKS, private Multi-AZ RDS PostgreSQL with pgvector, encrypted SQS and a dead-letter queue, ECR, Secrets Manager, IAM roles for service accounts, an Application Load Balancer, autoscaling, and Prometheus/Grafana monitoring.
 
-**Status:** the infrastructure and deployment workflow are in the repository, but no AWS environment is provisioned automatically. Terraform creates billable resources; review its plan and regional pricing before applying it.
+**Current deployment state (25 October 2026):** the AWS demo stack has been decommissioned; no live EKS cluster or dashboard endpoint is available. The Terraform, Helm, and deployment workflow remain here for a future deployment. The remote Terraform state bucket is retained for redeployment and may incur a small storage charge.
+
+GitHub's **`deployment-validation`** environment checks Terraform and Helm configuration without AWS credentials or resource creation. A green validation record does not mean an AWS deployment is live. **Deploy ActionCloud to EKS** is manual-only; run it only after AWS infrastructure and the GitHub OIDC variables are configured. Provisioning and running AWS services is billable.
 
 ## What the cloud deployment adds
 
@@ -83,6 +85,17 @@ Prerequisites: an AWS account and credentials with authority to create the liste
 
 4. Review every resource and its cost before applying. Applying provisions billable resources such as the EKS control plane, NAT gateways, worker nodes, and Multi-AZ RDS. Destroying the stack also deletes resources and may affect stored data.
 5. After provisioning, add the Terraform output values required by `.github/workflows/deploy.yml` as repository variables. Create a protected `production` GitHub Environment and configure its OIDC deployment role. For the default private EKS API endpoint, use a controlled self-hosted GitHub runner inside the VPC and set `DEPLOY_RUNNER=actioncloud-aws`.
-6. Merge the deployment workflow to `main`, or manually dispatch it from GitHub Actions. It builds and pushes the commit image to ECR, installs the cluster add-ons, deploys the Helm release, waits for readiness, and updates the optional Route 53 record.
+6. After provisioning, manually dispatch **Deploy ActionCloud to EKS** from GitHub Actions. It builds and pushes the commit image to ECR, installs the cluster add-ons, deploys the Helm release, waits for readiness, and updates the optional Route 53 record.
 
 The exact Terraform variables and workflow environment variables are documented in `terraform/terraform.tfvars.example`, `terraform/outputs.tf`, and `.github/workflows/deploy.yml`. Keep the GitHub deployment environment protected and retrieve application secrets only through an authorized operator role.
+
+## Decommission the AWS stack
+
+After the demo, review and destroy the provisioned resources from the repository root:
+
+```powershell
+terraform -chdir=infra/terraform plan -destroy
+terraform -chdir=infra/terraform destroy
+```
+
+Review the destroy plan before confirming. Destroying the stack removes the database and other runtime resources; preserve any data you need first. The remote S3 state bucket is separate from the Terraform stack and remains for a future redeployment, so a small storage charge may continue.

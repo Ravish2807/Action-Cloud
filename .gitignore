@@ -12,6 +12,11 @@
 infra/terraform/backend.tf
 infra/terraform/crash.log
 .tools/
+.archify/
+*.finalize.json
+*.finalize-summary.json
+*.browser-check.json
+*.delivery.json
 
 # Private project reports and manuscript source. Keep local copies in this folder.
 D14_Report/

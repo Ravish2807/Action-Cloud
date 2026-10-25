@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "ActionCloud Workspace: Choose, Run, Verify",
+    "locale": "en",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "output": "docs/actioncloud-workspace-flow.html",
+    "repository": {
+      "url": "https://github.com/Ravish2807/Action-Cloud.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "df5b7f2fb3a6cb7d1c533af11d1ff393b8e30d51"
+    }
+  },
+  "lanes": [
+    { "id": "you", "label": "You / project owner" },
+    { "id": "github", "label": "GitHub workflows" },
+    { "id": "laptop", "label": "Laptop: local stack" },
+    { "id": "aws", "label": "AWS: when provisioned" },
+    { "id": "results", "label": "Dashboard and results" },
+    { "id": "cleanup", "label": "Cloud teardown" }
+  ],
+  "phases": [
+    { "id": "start", "label": "Start here", "fromCol": 0, "toCol": 0 },
+    { "id": "choose", "label": "Choose a path", "fromCol": 1, "toCol": 1 },
+    { "id": "prepare", "label": "Prepare", "fromCol": 2, "toCol": 2 },
+    { "id": "run", "label": "Run / observe / stop", "fromCol": 3, "toCol": 3, "variant": "emphasis" }
+  ],
+  "mainPath": ["readme", "choose_path", "local_stack", "local_run", "local_stop"],
+  "nodes": [
+    {
+      "id": "readme", "lane": "you", "col": 0, "type": "frontend", "icon": "start",
+      "label": "Start at README", "sublabel": "status + options", "width": 125,
+      "sources": [{ "path": "README.md", "line": 1, "end_line": 30 }]
+    },
+    {
+      "id": "choose_path", "lane": "you", "col": 1, "type": "backend", "icon": "decision",
+      "label": "Choose a path", "sublabel": "local / CI / AWS", "width": 125,
+      "sources": [{ "path": "dashboard/README.md", "line": 5, "end_line": 45 }, { "path": "infra/README.md", "line": 72, "end_line": 88 }]
+    },
+    {
+      "id": "local_stack", "lane": "laptop", "col": 2, "type": "backend", "icon": "backend",
+      "label": "Start Compose", "sublabel": "DB + local queue", "width": 125,
+      "sources": [{ "path": "docker-compose.yml", "line": 12, "end_line": 35 }, { "path": "docker-compose.yml", "line": 42, "end_line": 93 }, { "path": "dashboard/README.md", "line": 7, "end_line": 15 }]
+    },
+    {
+      "id": "local_run", "lane": "laptop", "col": 3, "type": "backend", "icon": "active", "width": 125,
+      "label": "Run sim + view UI", "sublabel": "sim → Streamlit",
+      "sources": [{ "path": "dashboard/README.md", "line": 29, "end_line": 39 }]
+    },
+    {
+      "id": "local_stop", "lane": "you", "col": 3, "type": "backend", "icon": "stop", "width": 125,
+      "label": "Stop local stack", "sublabel": "compose down",
+      "sources": [{ "path": "docker-compose.yml", "line": 9, "end_line": 10 }, { "path": "dashboard/README.md", "line": 41, "end_line": 41 }]
+    },
+    {
+      "id": "push_main", "lane": "github", "col": 2, "type": "external", "icon": "cloud", "width": 125,
+      "label": "Push main", "sublabel": "CI runs",
+      "sources": [{ "path": ".github/workflows/ci.yml", "line": 3, "end_line": 6 }, { "path": ".github/workflows/deploy.yml", "line": 3, "end_line": 5 }]
+    },
+    {
+      "id": "ci_validate", "lane": "github", "col": 3, "type": "security", "icon": "success", "width": 125,
+      "label": "Green CI status", "sublabel": "tests + tf + Helm",
+      "sources": [{ "path": ".github/workflows/ci.yml", "line": 48, "end_line": 88 }]
+    },
+    {
+      "id": "review_cost", "lane": "you", "col": 2, "type": "security", "icon": "decision", "width": 125,
+      "label": "Review AWS plan", "sublabel": "billable resources",
+      "sources": [{ "path": "infra/README.md", "line": 72, "end_line": 85 }]
+    },
+    {
+      "id": "terraform_apply", "lane": "aws", "col": 2, "type": "cloud", "icon": "cloud", "width": 125,
+      "label": "Create AWS stack", "sublabel": "EKS · RDS · SQS",
+      "sources": [{ "path": "infra/README.md", "line": 3, "end_line": 14 }, { "path": "infra/README.md", "line": 73, "end_line": 84 }]
+    },
+    {
+      "id": "dispatch_deploy", "lane": "aws", "col": 3, "type": "backend", "icon": "active", "width": 125,
+      "label": "Deploy EKS", "sublabel": "OIDC · ECR · Helm",
+      "sources": [{ "path": ".github/workflows/deploy.yml", "line": 3, "end_line": 5 }, { "path": ".github/workflows/deploy.yml", "line": 43, "end_line": 49 }, { "path": ".github/workflows/deploy.yml", "line": 95, "end_line": 107 }]
+    },
+    {
+      "id": "cloud_demo", "lane": "results", "col": 3, "type": "backend", "icon": "active", "width": 125,
+      "label": "Run 25 agents + UI", "sublabel": "shared memory demo",
+      "sources": [{ "path": "scripts/run_cloud_live_demo.py", "line": 159, "end_line": 173 }, { "path": "dashboard/README.md", "line": 47, "end_line": 63 }]
+    },
+    {
+      "id": "cloud_destroy", "lane": "cleanup", "col": 3, "type": "security", "icon": "stop", "width": 125,
+      "label": "Destroy after demo", "sublabel": "DB data may be lost",
+      "sources": [{ "path": "infra/README.md", "line": 84, "end_line": 86 }]
+    }
+  ],
+  "edges": [
+    { "id": "start-choose", "from": "readme", "to": "choose_path", "label": "read the status first", "variant": "emphasis", "role": "main" },
+    { "id": "choose-local", "from": "choose_path", "to": "local_stack", "label": "local demo", "variant": "emphasis", "role": "branch" },
+    { "id": "local-run", "from": "local_stack", "to": "local_run", "label": "services ready", "role": "main" },
+    { "id": "local-stop", "from": "local_run", "to": "local_stop", "label": "finished", "role": "return" },
+    { "id": "choose-ci", "from": "choose_path", "to": "push_main", "label": "validate code; no AWS", "variant": "dashed", "role": "branch" },
+    { "id": "push-ci", "from": "push_main", "to": "ci_validate", "label": "green · no AWS", "variant": "emphasis", "role": "main" },
+    { "id": "choose-cloud", "from": "choose_path", "to": "review_cost", "label": "live AWS; billable", "variant": "security", "role": "branch" },
+    { "id": "cost-provision", "from": "review_cost", "to": "terraform_apply", "label": "approve plan", "variant": "security", "role": "main" },
+    { "id": "provision-deploy", "from": "terraform_apply", "to": "dispatch_deploy", "label": "infrastructure ready", "role": "main" },
+    { "id": "deploy-demo", "from": "dispatch_deploy", "to": "cloud_demo", "label": "agents + stored result", "variant": "emphasis", "role": "main" },
+    { "id": "demo-dashboard", "from": "cloud_demo", "to": "cloud_destroy", "label": "after recording", "variant": "security", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What the green GitHub mark means",
+      "items": [
+        "deployment-validation passed the Terraform and Helm checks",
+        "It is a configuration validation record, not a running AWS deployment"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Cost and teardown",
+      "items": [
+        "The GitHub validation path makes no AWS calls",
+        "The live AWS path creates billable resources; review the Terraform plan and destroy the stack after the demo"
+      ]
+    }
+  ]
+}

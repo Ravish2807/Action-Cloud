@@ -46,6 +46,8 @@ This laptop demo exercises the application, database, queue integration, migrati
 
 ## Run agents against the live AWS deployment
 
+This is a redeployment walkthrough, not a currently hosted site: the AWS demo stack was decommissioned on 25 October 2026, so there is no live dashboard address now. Provision the stack using [the AWS deployment guide](../infra/README.md) before using these steps. Terraform and AWS services are billable; GitHub's `deployment-validation` check does not start them.
+
 With the EKS API, worker, RDS, SQS, and dashboard running, open the public dashboard address:
 
 ```powershell
