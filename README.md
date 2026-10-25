@@ -18,32 +18,37 @@ The diagram is based on the implementation in [`src/actioncloud/service.py`](src
 
 ## Follow the workspace flow
 
-Choose a path below. On GitHub, the diagram is rendered directly in this README; the linked nodes open the relevant setup guides.
+Choose a route below. Each route reads left to right; click its setup or deployment nodes for the relevant guide.
 
 ```mermaid
-flowchart TD
-    START([Start here]) --> CHOOSE{What do you want to do?}
+flowchart LR
+    START([Start]) --> CHOOSE{Choose a route}
 
-    CHOOSE -->|Run and see agents locally| LOCAL_ENV[Prepare .env and local tools]
-    LOCAL_ENV --> LOCAL_STACK[Start Docker Compose<br/>PostgreSQL + LocalStack]
-    LOCAL_STACK --> LOCAL_SIM[Run the simulated agent workload]
-    LOCAL_SIM --> LOCAL_UI[Open Streamlit dashboard<br/>Watch shared memory and run stages]
-    LOCAL_UI --> LOCAL_STOP[Stop dashboard and Compose services]
+    CHOOSE -->|Local demo| LOCAL_ENV
+    subgraph LOCAL["1 · Run locally · recommended"]
+        direction LR
+        LOCAL_ENV[Prepare .env] --> LOCAL_STACK[Start Docker Compose<br/>PostgreSQL + LocalStack]
+        LOCAL_STACK --> LOCAL_SIM[Run simulated<br/>agent workload]
+        LOCAL_SIM --> LOCAL_UI[Watch stages and memory<br/>in Streamlit]
+        LOCAL_UI --> LOCAL_STOP[Stop dashboard<br/>and Compose]
+    end
 
-    CHOOSE -->|Check repository changes| PUSH[Push or open a pull request]
-    PUSH --> CI[GitHub Actions validates code,<br/>Terraform, and Helm]
-    CI --> CI_NOTE[Green validation means checks passed;<br/>it does not deploy or run AWS resources]
+    CHOOSE -->|GitHub checks| PUSH
+    subgraph CI_PATH["2 · Validate changes · no AWS resources"]
+        direction LR
+        PUSH[Push or open<br/>a pull request] --> CI[GitHub Actions checks<br/>code, Terraform, Helm]
+        CI --> CI_NOTE[Green means validation passed;<br/>it does not deploy AWS]
+    end
 
-    CHOOSE -->|Demonstrate a real AWS deployment| COST[Review AWS costs and deployment guide]
-    COST --> APPLY[Manually provision AWS infrastructure<br/>with Terraform]
-    APPLY --> DEPLOY[Manually deploy ActionCloud to EKS<br/>with the GitHub workflow / Helm]
-    DEPLOY --> AWS_UI[Open the AWS-hosted dashboard<br/>and submit the demo agent workload]
-    AWS_UI --> OBSERVE[Observe agents, shared-memory decisions,<br/>and completion in the live UI]
-    OBSERVE --> DESTROY[Run the documented teardown<br/>and verify AWS resources are removed]
-
-    LOCAL_STOP --> DONE([Finished])
-    CI_NOTE --> DONE
-    DESTROY --> DONE
+    CHOOSE -->|AWS deployment| COST
+    subgraph AWS_PATH["3 · Live AWS demo · billable"]
+        direction LR
+        COST[Review AWS costs<br/>and deployment guide] --> APPLY[Provision infrastructure<br/>with Terraform]
+        APPLY --> DEPLOY[Deploy API and worker<br/>to EKS with Helm]
+        DEPLOY --> AWS_UI[Open hosted dashboard<br/>and run agent workload]
+        AWS_UI --> OBSERVE[Observe shared-memory<br/>decisions and completion]
+        OBSERVE --> DESTROY[Tear down and verify<br/>AWS resources removed]
+    end
 
     classDef local fill:#123b35,stroke:#34d399,color:#f0fdf4
     classDef ci fill:#172554,stroke:#60a5fa,color:#eff6ff
