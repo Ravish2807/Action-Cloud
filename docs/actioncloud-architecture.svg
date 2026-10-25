@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 850" role="img" aria-labelledby="title desc">
+  <title id="title">ActionCloud architecture and shared-memory flow</title>
+  <desc id="desc">Agent clients call ActionCloud through MCP or REST. The memory service performs governed hybrid retrieval and context selection. Completed experiences enter a queue, are judged and enriched by a worker, then stored in PostgreSQL with pgvector. The dashboard reads run activity and storage state. The same application can run locally or on AWS.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#080d1a"/><stop offset="1" stop-color="#111a2e"/></linearGradient>
+    <linearGradient id="runtime" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101a2c"/><stop offset="1" stop-color="#111a28"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#020617" flood-opacity=".42"/></filter>
+    <marker id="arrowCyan" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#52d8f3"/></marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#54dda9"/></marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#ffc56b"/></marker>
+    <style>
+      text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#e8eef9}
+      .title{font-size:29px;font-weight:750;letter-spacing:.2px}.subtitle{font-size:13px;fill:#9aa9c0}
+      .zone{font-size:14px;font-weight:700}.zone-sub{font-size:10px;fill:#9aa9c0}
+      .node-title{font-size:13px;font-weight:700}.node-sub{font-size:10px;fill:#a8b5c9}.tiny{font-size:9px;fill:#9aa9c0}
+      .label{font-size:9px;font-weight:650;letter-spacing:.2px}.card{filter:url(#shadow)}
+      .flow{fill:none;stroke-width:2;stroke-linecap:round;stroke-dasharray:5 7;opacity:.8}
+      .packet{filter:drop-shadow(0 0 5px currentColor)}
+      .pulse{transform-box:fill-box;transform-origin:center;animation:pulse 2.2s ease-in-out infinite}
+      .pulse.delay{animation-delay:1.1s}
+      @keyframes pulse{0%,100%{opacity:.45;transform:scale(.88)}50%{opacity:1;transform:scale(1.14)}}
+      @media(prefers-reduced-motion:reduce){.packet,.pulse{display:none}.flow{stroke-dasharray:none}}
+    </style>
+  </defs>
+  <rect width="1440" height="850" rx="24" fill="url(#bg)"/>
+  <circle cx="1300" cy="80" r="210" fill="#34267a" opacity=".09"/><circle cx="80" cy="760" r="210" fill="#0d8da1" opacity=".08"/>
+  <text x="42" y="56" class="title">ActionCloud · governed shared memory for agent fleets</text>
+  <text x="43" y="82" class="subtitle">Agents retrieve reusable context, report outcomes, and contribute experiences through a policy-checked memory pipeline.</text>
+  <g transform="translate(1110 43)"><rect width="284" height="30" rx="15" fill="#18243a" stroke="#314361"/><circle cx="16" cy="15" r="4" fill="#52d8f3"/><text x="28" y="19" class="tiny">ANIMATED DATA FLOW · illustrative sequence</text></g>
+
+  <!-- Deployment boundary for the application components. -->
+  <rect x="250" y="122" width="790" height="520" rx="20" fill="url(#runtime)" stroke="#7866d9" stroke-width="1.5" stroke-dasharray="7 7" opacity=".98"/>
+  <rect x="270" y="108" width="448" height="27" rx="13" fill="#211d43" stroke="#7866d9"/>
+  <text x="286" y="126" class="label" fill="#c9bcff">APPLICATION RUNTIME · Docker Compose locally / Kubernetes on AWS EKS</text>
+
+  <!-- Agent clients -->
+  <g class="card"><rect x="32" y="158" width="190" height="276" rx="16" fill="#101d31" stroke="#38b8d2" stroke-width="1.5"/>
+    <circle cx="54" cy="184" r="7" fill="#123747" stroke="#52d8f3"/><path d="M51 184h6M54 181v6" stroke="#8cecff" stroke-width="1.5"/>
+    <text x="70" y="188" class="zone" fill="#87e8fb">Agent clients</text><text x="48" y="211" class="zone-sub">The task agents keep their own identity</text>
+    <rect x="48" y="232" width="158" height="43" rx="9" fill="#142941" stroke="#2b5871"/><text x="62" y="250" class="node-title">Coding agent</text><text x="62" y="265" class="tiny">writer / reader role</text>
+    <rect x="48" y="288" width="158" height="43" rx="9" fill="#142941" stroke="#2b5871"/><text x="62" y="306" class="node-title">Research agent</text><text x="62" y="321" class="tiny">separate identity and access</text>
+    <rect x="48" y="344" width="158" height="43" rx="9" fill="#142941" stroke="#2b5871"/><text x="62" y="362" class="node-title">Analysis agent</text><text x="62" y="377" class="tiny">task outcome and feedback</text>
+    <text x="49" y="412" class="tiny">Agents are workload callers, not cloud servers.</text>
+  </g>
+
+  <!-- API / shared memory service -->
+  <g class="card"><rect x="278" y="160" width="228" height="178" rx="14" fill="#102435" stroke="#48b8d1" stroke-width="1.4"/>
+    <circle cx="301" cy="184" r="7" fill="#1c5263"/><text x="317" y="188" class="zone" fill="#89e9fa">MCP + REST API</text>
+    <text x="296" y="218" class="node-title">Identity-aware entry</text><text x="296" y="236" class="node-sub">Agent ID · role · tenant · task</text>
+    <line x1="296" y1="252" x2="487" y2="252" stroke="#263a51"/>
+    <text x="296" y="274" class="node-sub">get context · store experience</text><text x="296" y="292" class="node-sub">report reuse outcome</text>
+    <rect x="296" y="306" width="188" height="20" rx="10" fill="#102f3b"/><text x="307" y="320" class="tiny" fill="#74dff4">FastAPI · MCP server</text>
+  </g>
+  <g class="card"><rect x="538" y="153" width="476" height="262" rx="15" fill="#122b29" stroke="#38bb8b" stroke-width="1.4"/>
+    <circle cx="562" cy="179" r="7" fill="#1e6048"/><text x="578" y="183" class="zone" fill="#85edc3">Memory service · governed retrieval</text><text x="559" y="202" class="zone-sub">Read path: candidates are filtered before context reaches the agent.</text>
+    <rect x="559" y="224" width="132" height="69" rx="10" fill="#153a35" stroke="#328d72"/><text x="573" y="247" class="node-title">Embed query</text><text x="573" y="266" class="node-sub">semantic vector</text><text x="573" y="281" class="tiny">+ full-text terms</text>
+    <rect x="710" y="224" width="132" height="69" rx="10" fill="#153a35" stroke="#328d72"/><text x="724" y="247" class="node-title">Check visibility</text><text x="724" y="266" class="node-sub">identity + role tier</text><text x="724" y="281" class="tiny">private / agent / shared</text>
+    <rect x="861" y="224" width="132" height="69" rx="10" fill="#153a35" stroke="#328d72"/><text x="875" y="247" class="node-title">Select context</text><text x="875" y="266" class="node-sub">relevance · duplicates</text><text x="875" y="281" class="tiny">confidence · token budget</text>
+    <path d="M691 258h15M842 258h15" stroke="#54dda9" stroke-width="2" marker-end="url(#arrowGreen)"/>
+    <rect x="559" y="318" width="434" height="72" rx="10" fill="#102522" stroke="#2e6858"/><text x="576" y="343" class="node-title">Compact memory context</text><text x="576" y="363" class="node-sub">Only eligible, useful memories are injected into the current task.</text><text x="576" y="379" class="tiny">An empty result is valid when no candidate passes the policy.</text>
+  </g>
+  <g class="card"><rect x="1072" y="154" width="332" height="268" rx="15" fill="#211b35" stroke="#aa82e7" stroke-width="1.4"/>
+    <circle cx="1096" cy="180" r="7" fill="#573b7e"/><text x="1112" y="184" class="zone" fill="#d0b6ff">PostgreSQL + pgvector</text><text x="1092" y="204" class="zone-sub">Durable shared-memory and activity store</text>
+    <rect x="1092" y="224" width="292" height="57" rx="10" fill="#2b2340" stroke="#65508d"/><text x="1108" y="247" class="node-title">Experiences + embeddings</text><text x="1108" y="265" class="node-sub">workflow · confidence · governance tier</text>
+    <rect x="1092" y="296" width="292" height="49" rx="10" fill="#2b2340" stroke="#65508d"/><text x="1108" y="317" class="node-title">Reuse and injection ledger</text><text x="1108" y="334" class="node-sub">who retrieved which memory and outcome</text>
+    <rect x="1092" y="360" width="292" height="43" rx="10" fill="#2b2340" stroke="#65508d"/><text x="1108" y="379" class="node-title">llm_run_activity</text><text x="1108" y="394" class="tiny">stage, completion, storage state, memory tier</text>
+  </g>
+
+  <!-- Write path and queue worker -->
+  <g class="card"><rect x="278" y="456" width="228" height="146" rx="14" fill="#302519" stroke="#e29c46" stroke-width="1.4"/>
+    <circle cx="301" cy="480" r="7" fill="#69491d"/><text x="317" y="484" class="zone" fill="#ffd08b">Experience write</text>
+    <text x="296" y="513" class="node-title">Agent reports outcome</text><text x="296" y="533" class="node-sub">task · solution · success / failure</text>
+    <text x="296" y="555" class="node-sub">identity and provenance included</text>
+    <rect x="296" y="568" width="188" height="21" rx="10" fill="#3a2c1b"/><text x="308" y="583" class="tiny" fill="#ffd08b">store_experience</text>
+  </g>
+  <g class="card"><rect x="538" y="456" width="218" height="146" rx="14" fill="#302519" stroke="#e29c46" stroke-width="1.4"/>
+    <circle cx="562" cy="480" r="7" fill="#69491d"/><text x="578" y="484" class="zone" fill="#ffd08b">Queue · async handoff</text>
+    <text x="557" y="516" class="node-title">SQS on AWS</text><text x="557" y="536" class="node-sub">LocalStack in Compose demo</text>
+    <text x="557" y="558" class="node-sub">retryable, idempotent delivery</text>
+    <rect x="556" y="570" width="181" height="20" rx="10" fill="#3a2c1b"/><text x="569" y="584" class="tiny" fill="#ffd08b">experience.created</text>
+  </g>
+  <g class="card"><rect x="788" y="456" width="226" height="146" rx="14" fill="#302519" stroke="#e29c46" stroke-width="1.4"/>
+    <circle cx="812" cy="480" r="7" fill="#69491d"/><text x="828" y="484" class="zone" fill="#ffd08b">Worker · memory ingest</text>
+    <text x="807" y="516" class="node-title">Judge tier + confidence</text><text x="807" y="536" class="node-sub">Extract reusable workflow</text>
+    <text x="807" y="556" class="node-sub">Embed and persist transactionally</text>
+    <text x="807" y="583" class="tiny">private / agent / shared · policy-controlled</text>
+  </g>
+
+  <!-- Dashboard -->
+  <g class="card"><rect x="1072" y="456" width="332" height="146" rx="14" fill="#142b3b" stroke="#49a5dc" stroke-width="1.4"/>
+    <circle cx="1096" cy="480" r="7" fill="#245b78"/><text x="1112" y="484" class="zone" fill="#9bddff">Dashboard · Streamlit</text>
+    <text x="1092" y="515" class="node-title">Observe the real run ledger</text><text x="1092" y="536" class="node-sub">stage activity · running agent count · completion</text>
+    <text x="1092" y="556" class="node-sub">stored / rejected · memory tier · run results</text>
+    <rect x="1092" y="570" width="292" height="20" rx="10" fill="#18364a"/><text x="1107" y="584" class="tiny" fill="#9bddff">Refreshes from PostgreSQL run activity</text>
+  </g>
+
+  <!-- Labeled paths -->
+  <path d="M222 264H278" class="flow" stroke="#52d8f3" marker-end="url(#arrowCyan)"/>
+  <text x="228" y="250" class="label" fill="#83e7f8">MCP / REST</text>
+  <path d="M506 236H538" class="flow" stroke="#52d8f3" marker-end="url(#arrowCyan)"/>
+  <path d="M1014 257C1040 257 1047 252 1072 252" class="flow" stroke="#54dda9" marker-end="url(#arrowGreen)"/>
+  <text x="1017" y="242" class="label" fill="#85edc3">hybrid search</text>
+  <path d="M1072 316C1048 316 1038 335 1014 335" class="flow" stroke="#52d8f3" marker-end="url(#arrowCyan)"/>
+  <text x="1015" y="357" class="label" fill="#83e7f8">eligible context</text>
+  <path d="M559 354C533 354 526 322 506 322" class="flow" stroke="#52d8f3" marker-end="url(#arrowCyan)"/>
+  <path d="M278 316H222" class="flow" stroke="#52d8f3" marker-end="url(#arrowCyan)"/>
+  <text x="224" y="305" class="label" fill="#83e7f8">context back</text>
+  <path d="M394 338V456" class="flow" stroke="#ffc56b" marker-end="url(#arrowAmber)"/>
+  <text x="404" y="412" class="label" fill="#ffd08b">completed task</text>
+  <path d="M506 528H538" class="flow" stroke="#ffc56b" marker-end="url(#arrowAmber)"/>
+  <path d="M756 528H788" class="flow" stroke="#ffc56b" marker-end="url(#arrowAmber)"/>
+  <path d="M1014 528C1042 528 1044 382 1072 382" class="flow" stroke="#ffc56b" marker-end="url(#arrowAmber)"/>
+  <text x="1017" y="466" class="label" fill="#ffd08b">persist / tier</text>
+  <path d="M1238 422V456" class="flow" stroke="#7dc8ff" marker-end="url(#arrowCyan)"/>
+  <text x="1250" y="445" class="label" fill="#9bddff">telemetry</text>
+
+  <!-- Moving packets reinforce flow direction. -->
+  <circle r="4" fill="#8cecff" class="packet"><animateMotion dur="1.8s" repeatCount="indefinite" path="M222 264H278"/></circle>
+  <circle r="4" fill="#8cecff" class="packet"><animateMotion dur="2.2s" repeatCount="indefinite" path="M506 236H538"/></circle>
+  <circle r="4" fill="#72efbd" class="packet"><animateMotion dur="3.1s" repeatCount="indefinite" path="M1014 257C1040 257 1047 252 1072 252"/></circle>
+  <circle r="4" fill="#8cecff" class="packet"><animateMotion dur="3.2s" repeatCount="indefinite" path="M1072 316C1048 316 1038 335 1014 335"/></circle>
+  <circle r="4" fill="#8cecff" class="packet"><animateMotion dur="2.5s" repeatCount="indefinite" path="M559 354C533 354 526 322 506 322"/></circle>
+  <circle r="4" fill="#8cecff" class="packet"><animateMotion dur="2s" repeatCount="indefinite" path="M278 316H222"/></circle>
+  <circle r="4" fill="#ffd08b" class="packet"><animateMotion dur="2.8s" repeatCount="indefinite" path="M394 338V456"/></circle>
+  <circle r="4" fill="#ffd08b" class="packet"><animateMotion dur="2s" repeatCount="indefinite" path="M506 528H538"/></circle>
+  <circle r="4" fill="#ffd08b" class="packet"><animateMotion dur="2s" repeatCount="indefinite" path="M756 528H788"/></circle>
+  <circle r="4" fill="#ffd08b" class="packet"><animateMotion dur="3.4s" repeatCount="indefinite" path="M1014 528C1042 528 1044 382 1072 382"/></circle>
+  <circle r="4" fill="#9bddff" class="packet"><animateMotion dur="2.4s" repeatCount="indefinite" path="M1238 422V456"/></circle>
+  <circle cx="562" cy="179" r="11" fill="none" stroke="#58e8b2" class="pulse"/>
+  <circle cx="812" cy="480" r="11" fill="none" stroke="#ffc56b" class="pulse delay"/>
+
+  <!-- Deployment translation strip -->
+  <rect x="32" y="676" width="1372" height="128" rx="17" fill="#111a2b" stroke="#34445d"/>
+  <text x="54" y="705" class="zone">Same memory workflow · two deployment modes</text>
+  <rect x="53" y="722" width="620" height="60" rx="11" fill="#102d2b" stroke="#2d8b70"/>
+  <text x="70" y="745" class="node-title" fill="#85edc3">LOCAL · laptop demo</text><text x="70" y="765" class="node-sub">Docker Compose API + worker + dashboard · PostgreSQL/pgvector · LocalStack SQS</text>
+  <rect x="696" y="722" width="687" height="60" rx="11" fill="#29213b" stroke="#8469ba"/>
+  <text x="713" y="745" class="node-title" fill="#d0b6ff">AWS · production-style deployment</text><text x="713" y="765" class="node-sub">EKS API/worker/dashboard · RDS PostgreSQL · SQS · Secrets Manager · ECR/ALB</text>
+  <text x="54" y="827" class="tiny">The animated packets explain component flow; they are illustrative. Live run counts and decisions come from llm_run_activity when the dashboard is running.</text>
+</svg>

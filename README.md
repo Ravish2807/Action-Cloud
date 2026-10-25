@@ -8,6 +8,14 @@ ActionCloud is a governed shared-memory service for AI agent fleets. Agents can 
 
 GitHub's green **`deployment-validation`** record means the workflow validated the deployment configuration. It does not mean ActionCloud is running in AWS. The real **Deploy ActionCloud to EKS** workflow is manual-only and requires AWS infrastructure to be provisioned first. Applying Terraform and deploying the stack create billable AWS resources.
 
+## ActionCloud architecture
+
+The moving dots show how memory is read, governed, stored, and surfaced in the dashboard. The drawing is visible here on GitHub and respects reduced-motion settings. Its animation explains the architecture; live agent counts and decisions appear only when the dashboard is connected to a running ActionCloud deployment.
+
+![Animated ActionCloud architecture: agents, MCP and REST API, governed memory retrieval, queue worker, PostgreSQL, dashboard, and local or AWS deployment](docs/actioncloud-architecture.svg)
+
+The diagram is based on the implementation in [`src/actioncloud/service.py`](src/actioncloud/service.py), [`src/actioncloud/pipeline.py`](src/actioncloud/pipeline.py), and [`src/actioncloud/worker.py`](src/actioncloud/worker.py). [xyflow](https://github.com/xyflow/xyflow) is a React/Svelte library for interactive app canvases; GitHub README pages cannot execute that app code, so the architecture is embedded here as an animated SVG. The flow below remains clickable to guide you to the local and AWS instructions.
+
 ## Follow the workspace flow
 
 Choose a path below. On GitHub, the diagram is rendered directly in this README; the linked nodes open the relevant setup guides.
