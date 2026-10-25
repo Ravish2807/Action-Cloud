@@ -40,6 +40,32 @@ if (!(Test-Path .venv)) { py -3.13 -m venv .venv }
 
 This validates the laptop stack, not EKS provisioning or AWS IAM. To see tracked benchmark tasks in the UI, follow [the dashboard live demo](../dashboard/README.md).
 
+## Show the Streamlit dashboard from AWS
+
+The dashboard is a separate Streamlit workload. After the API/worker release and AWS Load Balancer Controller are running, build and push its image, then enable the dashboard and restricted public ingress:
+
+```powershell
+$ecr = terraform -chdir=infra/terraform output -raw ecr_repository_url
+$currentIp = (Invoke-RestMethod https://checkip.amazonaws.com).Trim()
+$dashboardTag = "dashboard-demo-$(Get-Date -Format yyyyMMddHHmmss)"
+
+docker build -f dashboard/Dockerfile -t "$ecr`:$dashboardTag" .
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ($ecr -replace '/.*$','')
+docker push "$ecr`:$dashboardTag"
+
+helm upgrade actioncloud helm/actioncloud --namespace actioncloud --reuse-values `
+  --set dashboard.enabled=true `
+  --set "dashboard.image.repository=$ecr" `
+  --set "dashboard.image.tag=$dashboardTag" `
+  --set dashboard.public.enabled=true `
+  --set "dashboard.public.allowedCidrs[0]=$currentIp/32" `
+  --wait --timeout 10m
+
+kubectl get ingress actioncloud-actioncloud-dashboard -n actioncloud
+```
+
+Open the Ingress `ADDRESS` in a browser using `http://`. AWS provides a public load-balancer DNS name, not a permanent single IP. The CIDR setting limits browser access to the machine's current public IP; refresh it if that IP changes. The internet-facing load balancer has an hourly charge. Disable the dashboard ingress or destroy the AWS stack after the demonstration to stop those charges. For a public audience beyond your own IP, add HTTPS and user authentication first.
+
 ## Provision a real AWS environment
 
 Prerequisites: an AWS account and credentials with authority to create the listed resources, Terraform 1.9+, AWS CLI, Helm 3, kubectl, and a GitHub repository with Actions enabled.

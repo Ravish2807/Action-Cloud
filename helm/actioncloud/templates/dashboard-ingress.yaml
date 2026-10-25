@@ -1,0 +1,26 @@
+{{- if and .Values.dashboard.enabled .Values.dashboard.public.enabled }}
+{{- if not .Values.dashboard.public.allowedCidrs }}
+{{- fail "dashboard.public.allowedCidrs must contain at least one trusted IPv4 CIDR" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "actioncloud.fullname" . }}-dashboard
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/inbound-cidrs: {{ join "," .Values.dashboard.public.allowedCidrs | quote }}
+    alb.ingress.kubernetes.io/healthcheck-path: /_stcore/health
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "actioncloud.fullname" . }}-dashboard
+                port: {number: {{ .Values.dashboard.service.port }}}
+{{- end }}

@@ -10,7 +10,16 @@ __pycache__
 .env
 results
 tests
-dashboard
+D14_Report
+local-private
+ActionCloud_Project_Report.docx
+ActionCloud_Review1_Presentation.tex
+*.tfvars
+*.tfplan
+*.tfstate
+*.tfstate.*
+/.aws
+/.ssh
 paper
 infra
 helm
