@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ActionCloud Project Architecture Mind Map
+  Format: Hierarchical XML Mind Map (Viewable in FreeMind, Draw.io, VS Code, and Web Browsers)
+-->
+<map version="1.0.1" title="ActionCloud Architecture &amp; File Implementation">
+  <node text="ActionCloud Repository" category="Root" description="Outcome-Governed Shared Memory System for Multi-Agent Fleets">
+
+    <!-- 1. CORE APPLICATION & GOVERNANCE ENGINE -->
+    <node text="src/actioncloud/ (Core Application Engine)" category="Core Backend" description="FastAPI service, memory governance, vector search, and queue workers">
+
+      <node text="api.py" type="file">
+        <role>REST API Layer</role>
+        <implementation>Implements the FastAPI application. Exposes REST endpoints: /context (memory retrieval), /experiences (trajectory ingestion), /reuse (outcome reporting), /health (health probes), and /metrics (Prometheus export).</implementation>
+        <key_functions>get_context(), record_experience(), report_reuse(), health_check()</key_functions>
+      </node>
+
+      <node text="judge.py" type="file">
+        <role>Outcome-Governed Memory Judge</role>
+        <implementation>The algorithmic core of ActionCloud. Implements the 5-tier memory promotion ladder (PRIVATE -> AGENT -> SHARED -> VALIDATED -> ORGANIZATIONAL). Calculates Bayesian Beta-posterior confidence c(m) = (s + 1.2)/(n + 2). Enforces automatic quarantine upon consecutive failures or confidence dropping below threshold.</implementation>
+        <key_functions>evaluate_promotion(), calculate_confidence(), check_quarantine(), demote_or_quarantine()</key_functions>
+      </node>
+
+      <node text="builder.py" type="file">
+        <role>Context Retrieval &amp; Prompt Assembly</role>
+        <implementation>Queries PostgreSQL pgvector for candidate experiences matching incoming task descriptions. Filters candidates using relevance threshold tau and confidence floor c_min. Performs deduplication and injects top-1 procedure (k=1) to prevent context pollution.</implementation>
+        <key_functions>build_context(), retrieve_candidates(), filter_by_confidence(), format_injection_prompt()</key_functions>
+      </node>
+
+      <node text="extractor.py" type="file">
+        <role>Trajectory Knowledge Extractor</role>
+        <implementation>Parses raw agent execution trajectories (prompts, tool calls, bash commands, outputs) and extracts structured knowledge: clean step-by-step procedures, required prerequisites, tools used, and failure pitfalls.</implementation>
+        <key_functions>extract_procedure(), identify_pitfalls(), extract_prerequisites(), clean_trajectory()</key_functions>
+      </node>
+
+      <node text="embeddings.py" type="file">
+        <role>Vector Embedding Service</role>
+        <implementation>Generates 384-dimensional semantic dense vector embeddings from task descriptions and query strings for vector similarity matching in PostgreSQL pgvector.</implementation>
+        <key_functions>embed_text(), embed_task(), cosine_similarity()</key_functions>
+      </node>
+
+      <node text="pipeline.py" type="file">
+        <role>Ingestion &amp; Indexing Pipeline</role>
+        <implementation>Orchestrates trajectory intake: runs knowledge extraction, generates embeddings, assigns initial tier via Memory Judge, and executes idempotent relational and vector writes into PostgreSQL.</implementation>
+        <key_functions>process_trajectory(), ingest_experience(), index_vector()</key_functions>
+      </node>
+
+      <node text="db.py" type="file">
+        <role>Database Engine &amp; Vector Adapter</role>
+        <implementation>Async database connection pool using asyncpg and pgvector. Handles transactional operations, row-level locking (SELECT ... FOR UPDATE) during tier transitions to prevent race conditions, and logs injection-to-reuse audit trails.</implementation>
+        <key_functions>get_db_pool(), search_experiences(), update_tier(), log_injection()</key_functions>
+      </node>
+
+      <node text="decay.py" type="file">
+        <role>Confidence Temporal Decay</role>
+        <implementation>Applies half-life exponential decay to memory confidence scores over elapsed epochs/time to ensure stale procedures naturally lose prominence unless continuously re-validated.</implementation>
+        <key_functions>apply_time_decay(), compute_half_life_score()</key_functions>
+      </node>
+
+      <node text="policy.py" type="file">
+        <role>Role-Based Memory Visibility Policies</role>
+        <implementation>Defines cross-tier access control matrices. Governs which agent roles (Coding, DevOps, SRE, DB, Security) are authorized to view or elevate memories across each tier.</implementation>
+        <key_functions>can_read_tier(), can_promote_tier(), get_allowed_tiers()</key_functions>
+      </node>
+
+      <node text="auth.py" type="file">
+        <role>Security &amp; API Key Authentication</role>
+        <implementation>Validates incoming Bearer tokens using SHA-256 hashed database keys. Maps incoming requests to verified Agent IDs and security roles, preventing impersonation.</implementation>
+        <key_functions>verify_api_key(), hash_token(), get_current_agent()</key_functions>
+      </node>
+
+      <node text="queue.py" type="file">
+        <role>SQS Queue Producer</role>
+        <implementation>Asynchronously enqueues raw agent execution traces to Amazon SQS / LocalStack SQS so API request threads remain low-latency and decoupled from processing workloads.</implementation>
+        <key_functions>enqueue_trajectory(), send_message()</key_functions>
+      </node>
+
+      <node text="worker.py" type="file">
+        <role>Background Queue Consumer</role>
+        <implementation>Continuously polls Amazon SQS for new trajectory messages. Processes ingestion via pipeline.py, manages message acknowledgments, handles poison pill retries, and forwards repeated errors to the Dead-Letter Queue (DLQ).</implementation>
+        <key_functions>poll_queue(), process_message(), handle_dlq()</key_functions>
+      </node>
+
+      <node text="mcp_server.py" type="file">
+        <role>Model Context Protocol Server</role>
+        <implementation>Implements an MCP stdio server that exposes ActionCloud tools (search_memory, store_experience, report_outcome) directly to external IDE agents such as Cursor, Claude Desktop, and Antigravity.</implementation>
+        <key_functions>serve_mcp(), handle_tool_call()</key_functions>
+      </node>
+
+      <node text="client.py" type="file">
+        <role>ActionCloud Python SDK Client</role>
+        <implementation>Lightweight HTTP client providing clean methods for agents to interact with the ActionCloud API: fetch context, report reuse outcomes, and submit execution traces.</implementation>
+        <key_functions>ActionCloudClient.get_context(), ActionCloudClient.report_reuse()</key_functions>
+      </node>
+
+      <node text="prometheus_metrics.py" type="file">
+        <role>Observability Instrumentation</role>
+        <implementation>Defines Prometheus counters, gauges, and latency histograms for context retrieval latencies, memory reuse success rates, tier promotions, and quarantine counts.</implementation>
+        <key_functions>track_retrieval_latency(), record_reuse_metric()</key_functions>
+      </node>
+
+      <node text="secrets.py" type="file">
+        <role>AWS Secrets Manager Integration</role>
+        <implementation>Fetches database credentials and API master keys dynamically from AWS Secrets Manager using boto3 with local fallback to environment variables.</implementation>
+        <key_functions>get_database_secret(), get_secret_value()</key_functions>
+      </node>
+
+      <node text="schema.py" type="file">
+        <role>Pydantic Data Models</role>
+        <implementation>Defines strong type contracts for API requests/responses, memory objects, injection records, reuse feedback, and benchmark execution logs.</implementation>
+        <key_functions>ExperienceCreate, ContextRequest, ReuseReport, ExperienceResponse</key_functions>
+      </node>
+
+      <node text="config.py" type="file">
+        <role>System Configuration</role>
+        <implementation>Loads and validates environment variables (DATABASE_URL, SQS_QUEUE_URL, AWS_REGION, confidence thresholds, embedding models) using pydantic-settings.</implementation>
+        <key_functions>Settings, get_settings()</key_functions>
+      </node>
+
+    </node>
+
+    <!-- 2. AGENTS SUBSYSTEM -->
+    <node text="src/actioncloud/agents/ (Agent Fleet Subsystem)" category="Agent Fleet" description="12 distinct agent roles and fleet coordination">
+
+      <node text="roles.py" type="file">
+        <role>Agent Role Definitions &amp; Prompts</role>
+        <implementation>Defines 12 specialized agent roles (Frontend, Backend, DevOps, DB Admin, Security, SRE, QA, etc.) along with role-specific system prompts, allowed memory tiers, and execution constraints.</implementation>
+        <key_functions>AGENT_ROLES, get_role_prompt(), get_allowed_tiers_for_role()</key_functions>
+      </node>
+
+      <node text="base.py" type="file">
+        <role>Base Agent Class</role>
+        <implementation>Abstract base class establishing the standard agent lifecycle: query memory context -> execute step -> verify outcome -> report outcome back to ActionCloud.</implementation>
+        <key_functions>BaseAgent.run_task(), BaseAgent.retrieve_memory(), BaseAgent.report_outcome()</key_functions>
+      </node>
+
+      <node text="coordinator.py" type="file">
+        <role>Multi-Agent Fleet Coordinator</role>
+        <implementation>Orchestrates multi-agent workflows, dispatches tasks to appropriate agent personas based on capability match, and synchronizes shared memory context across cooperating agents.</implementation>
+        <key_functions>dispatch_task(), coordinate_fleet(), sync_shared_memory()</key_functions>
+      </node>
+
+    </node>
+
+    <!-- 3. BENCHMARK & SIMULATION SUITE -->
+    <node text="src/actioncloud/benchmark/ (Evaluation Engine)" category="Evaluation" description="136 tasks across 45 families, dual-verifiers, and paired harness">
+
+      <node text="tasks.json" type="file">
+        <role>Benchmark Task Catalog</role>
+        <implementation>Dataset of 136 benchmark tasks categorized across 45 parameterized families (DevOps, SQL migrations, API development, incident response, k8s debugging).</implementation>
+        <key_functions>Task definitions, inputs, expected ground truth criteria</key_functions>
+      </node>
+
+      <node text="procedures.json" type="file">
+        <role>Ground Truth Knowledge Base</role>
+        <implementation>Validated step-by-step procedures, tool arguments, and anti-patterns used by simulator or verifiers to assess memory quality.</implementation>
+        <key_functions>Canonical procedure specifications and pitfalls</key_functions>
+      </node>
+
+      <node text="verifier.py" type="file">
+        <role>Strict Ground-Truth Verifier</role>
+        <implementation>Implements deterministic verification checking actual system state, return codes, regex patterns, and output invariants, avoiding lenient self-reporting bias.</implementation>
+        <key_functions>verify_task_execution(), check_invariants(), diff_state()</key_functions>
+      </node>
+
+      <node text="harness.py" type="file">
+        <role>Paired Evaluation Harness</role>
+        <implementation>Executes paired trial simulations across Baseline (no shared memory), Unchecked Shared Memory, and ActionCloud. Runs multi-epoch progressions across multiple random seeds.</implementation>
+        <key_functions>run_paired_evaluation(), compute_aggregate_metrics()</key_functions>
+      </node>
+
+      <node text="simulator.py" type="file">
+        <role>Agent Execution Simulator</role>
+        <implementation>Simulates agent problem solving with injected memory procedures, modeling error injection, recovery attempts, tool call latency, and token consumption.</implementation>
+        <key_functions>simulate_run(), inject_error(), calculate_tokens()</key_functions>
+      </node>
+
+    </node>
+
+    <!-- 4. DATABASE MIGRATIONS -->
+    <node text="sql/ (PostgreSQL Schema &amp; Migrations)" category="Data Layer" description="Relational schema, pgvector extension, audit tables">
+
+      <node text="001_init.sql" type="file">
+        <role>Initial Schema &amp; pgvector Setup</role>
+        <implementation>Enables the vector extension. Creates experiences table (id, task, procedure, embedding, tier, confidence, success_count, failure_count) with IVFFlat/HNSW vector index.</implementation>
+        <key_functions>CREATE EXTENSION vector, CREATE TABLE experiences</key_functions>
+      </node>
+
+      <node text="002_fleet_roles_and_reuse_audit.sql" type="file">
+        <role>Audit Logging Schema</role>
+        <implementation>Creates reuse_events table to log every memory injection, agent feedback, outcome verification, and execution timestamp.</implementation>
+        <key_functions>CREATE TABLE reuse_events</key_functions>
+      </node>
+
+      <node text="003_agent_auth_and_injections.sql" type="file">
+        <role>Agent Authentication Schema</role>
+        <implementation>Creates agents table storing agent identities, roles, and hashed API keys. Creates injections table to track which memory was injected into which run.</implementation>
+        <key_functions>CREATE TABLE agents, CREATE TABLE injections</key_functions>
+      </node>
+
+      <node text="004_author_prior.sql" type="file">
+        <role>Author Reputation &amp; Prior Schema</role>
+        <implementation>Adds author reputation tracking and initial prior weighting to experience records based on historical author reliability.</implementation>
+        <key_functions>ALTER TABLE experiences ADD COLUMN author_reputation</key_functions>
+      </node>
+
+      <node text="005_session_tenant_expiry.sql" type="file">
+        <role>Multi-Tenancy &amp; TTL Expiration</role>
+        <implementation>Adds tenant_id, session_id, and TTL expiration timestamps to experiences for secure enterprise multi-tenancy and automatic cleanup.</implementation>
+        <key_functions>ALTER TABLE experiences ADD COLUMN expires_at</key_functions>
+      </node>
+
+      <node text="007_llm_run_activity.sql" type="file">
+        <role>Live Run Tracking</role>
+        <implementation>Creates llm_run_activity table logging live 6-stage lifecycle states (retrieve, act, verify, store, govern, done) for real-time dashboard display.</implementation>
+        <key_functions>CREATE TABLE llm_run_activity</key_functions>
+      </node>
+
+    </node>
+
+    <!-- 5. EXPERIMENTATION & OPERATIONAL SCRIPTS -->
+    <node text="scripts/ (Evaluation &amp; Operations Scripts)" category="Scripts" description="Reproducibility runners, ablation analysis, and chart generators">
+
+      <node text="run_experiment.py" type="file">
+        <role>Primary Experiment Runner</role>
+        <implementation>Executes the complete experimental suite (2,040 runs across 5 seeds and 3 epochs), evaluating baseline vs ActionCloud and saving raw JSON metrics.</implementation>
+      </node>
+
+      <node text="run_k_ablation.py" type="file">
+        <role>Context Size (k) Ablation Experiment</role>
+        <implementation>Runs experiments varying k in [1, 2, 3, 5] to measure context token bloat, latency, and conflicting procedure confusion, proving optimality of k=1.</implementation>
+      </node>
+
+      <node text="adversarial_benchmark.py" type="file">
+        <role>Poisoning &amp; Sybil Stress Test</role>
+        <implementation>Simulates adversarial malicious agents attempting to inject toxic or incorrect procedures into shared memory to evaluate quarantine containment.</implementation>
+      </node>
+
+      <node text="calibrate_threshold.py" type="file">
+        <role>Relevance Threshold (tau) Calibration</role>
+        <implementation>Sweeps similarity threshold tau from 0.50 to 0.95 to find the optimal operating point (tau=0.82) balancing recall against false retrieval.</implementation>
+      </node>
+
+      <node text="generate_ieee_figures.py" type="file">
+        <role>Paper Figure Generator</role>
+        <implementation>Generates high-resolution IEEE publication charts (success rate progression, token savings, tier transitions, latency percentiles) using matplotlib.</implementation>
+      </node>
+
+      <node text="verify_e2e.py" type="file">
+        <role>End-to-End System Verification</role>
+        <implementation>Comprehensive health and functional verification testing API endpoints, database inserts, vector queries, SQS queue roundtrip, and governance promotion.</implementation>
+      </node>
+
+      <node text="migrate.py" type="file">
+        <role>Database Migration Runner</role>
+        <implementation>Applies SQL migration scripts sequentially to the target PostgreSQL database with idempotency checks.</implementation>
+      </node>
+
+    </node>
+
+    <!-- 6. OBSERVABILITY DASHBOARD -->
+    <node text="dashboard/ (Real-Time Operator Dashboard)" category="Observability" description="Streamlit interactive visualization for live fleet runs and memory governance">
+
+      <node text="app.py" type="file">
+        <role>Streamlit Dashboard Application</role>
+        <implementation>Interactive real-time web dashboard. Renders live task stages (retrieve -> act -> verify -> store -> govern -> done), active agent IDs, token metrics, and memory tier breakdown.</implementation>
+        <key_functions>render_task_cards(), display_tier_breakdown(), stream_run_activity()</key_functions>
+      </node>
+
+      <node text="matrices.py" type="file">
+        <role>Metric Computations &amp; Plotting</role>
+        <implementation>Computes statistical summaries, error containment rates, cost/token savings curves, and generates visual charts for the dashboard UI.</implementation>
+        <key_functions>calculate_token_savings(), plot_governance_distribution()</key_functions>
+      </node>
+
+    </node>
+
+    <!-- 7. INFRASTRUCTURE & CLOUD DEPLOYMENT -->
+    <node text="infra/terraform/ &amp; helm/ (Infrastructure as Code &amp; K8s)" category="Cloud Infrastructure" description="AWS cloud resources and Kubernetes packaging">
+
+      <node text="infra/terraform/network.tf" type="file">
+        <role>AWS Networking Architecture</role>
+        <implementation>Provisions multi-AZ VPC, public/private subnets, NAT Gateways, Internet Gateways, and security groups ensuring private RDS and worker isolation.</implementation>
+      </node>
+
+      <node text="infra/terraform/main.tf" type="file">
+        <role>AWS EKS &amp; RDS Provisioning</role>
+        <implementation>Provisions AWS EKS Kubernetes cluster, EC2 managed node groups, Amazon RDS PostgreSQL 16 with pgvector, Amazon SQS FIFO/standard queues with DLQ, and IAM IRSA roles.</implementation>
+      </node>
+
+      <node text="helm/actioncloud/templates/api.yaml" type="file">
+        <role>API Deployment &amp; Service</role>
+        <implementation>Kubernetes deployment specification for ActionCloud FastAPI containers with readiness/liveness HTTP probes and ClusterIP service.</implementation>
+      </node>
+
+      <node text="helm/actioncloud/templates/worker.yaml" type="file">
+        <role>Worker Deployment</role>
+        <implementation>Kubernetes deployment specification for background SQS queue consumers processing ingestion tasks.</implementation>
+      </node>
+
+      <node text="helm/actioncloud/templates/hpa.yaml" type="file">
+        <role>Horizontal Pod Autoscaler</role>
+        <implementation>Defines autoscaling policies scaling API pods automatically based on CPU and request concurrency thresholds.</implementation>
+      </node>
+
+      <node text="helm/actioncloud/templates/migration.yaml" type="file">
+        <role>Database Migration Job</role>
+        <implementation>Kubernetes pre-install / pre-upgrade Job that executes database migration scripts before rolling out new application pods.</implementation>
+      </node>
+
+    </node>
+
+    <!-- 8. CONFIGURATION & REPO ROOT -->
+    <node text="Root Files (Build, Packaging &amp; Specification)" category="Root Config" description="Containerization, environment, and dependencies">
+
+      <node text="Dockerfile" type="file">
+        <role>Application Container Image</role>
+        <implementation>Multi-stage Docker build producing a secure, lightweight Python 3.11 container artifact for both API and Worker workloads.</implementation>
+      </node>
+
+      <node text="docker-compose.yml" type="file">
+        <role>Local Development Stack</role>
+        <implementation>Orchestrates local services: ActionCloud API, Worker, PostgreSQL with pgvector, and LocalStack (SQS emulator).</implementation>
+      </node>
+
+      <node text="pyproject.toml / requirements.txt" type="file">
+        <role>Dependency Management</role>
+        <implementation>Declares core dependencies: FastAPI, asyncpg, pgvector, pydantic, boto3, prometheus_client, and dev tools (pytest, ruff, mypy).</implementation>
+      </node>
+
+      <node text="actioncloud_architecture.drawio" type="file">
+        <role>Architecture Diagram Specification</role>
+        <implementation>Visual diagram specification illustrating the interaction between agent fleets, API, SQS, PostgreSQL, and AWS cloud boundary.</implementation>
+      </node>
+
+    </node>
+
+  </node>
+</map>
