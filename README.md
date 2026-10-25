@@ -10,9 +10,51 @@ GitHub's green **`deployment-validation`** record means the workflow validated t
 
 ## Follow the workspace flow
 
-[Open the interactive ActionCloud workspace flowchart](docs/actioncloud-workspace-flow.html) · [View its editable Archify source](docs/actioncloud-workspace-flow.workflow.json)
+Choose a path below. On GitHub, the diagram is rendered directly in this README; the linked nodes open the relevant setup guides.
 
-The flowchart covers the local demo, no-AWS GitHub validation, and the billable AWS deployment path. To use its interactions, download the HTML file from GitHub and open it in a browser; it is self-contained and does not start a service.
+```mermaid
+flowchart TD
+    START([Start here]) --> CHOOSE{What do you want to do?}
+
+    CHOOSE -->|Run and see agents locally| LOCAL_ENV[Prepare .env and local tools]
+    LOCAL_ENV --> LOCAL_STACK[Start Docker Compose<br/>PostgreSQL + LocalStack]
+    LOCAL_STACK --> LOCAL_SIM[Run the simulated agent workload]
+    LOCAL_SIM --> LOCAL_UI[Open Streamlit dashboard<br/>Watch shared memory and run stages]
+    LOCAL_UI --> LOCAL_STOP[Stop dashboard and Compose services]
+
+    CHOOSE -->|Check repository changes| PUSH[Push or open a pull request]
+    PUSH --> CI[GitHub Actions validates code,<br/>Terraform, and Helm]
+    CI --> CI_NOTE[Green validation means checks passed;<br/>it does not deploy or run AWS resources]
+
+    CHOOSE -->|Demonstrate a real AWS deployment| COST[Review AWS costs and deployment guide]
+    COST --> APPLY[Manually provision AWS infrastructure<br/>with Terraform]
+    APPLY --> DEPLOY[Manually deploy ActionCloud to EKS<br/>with the GitHub workflow / Helm]
+    DEPLOY --> AWS_UI[Open the AWS-hosted dashboard<br/>and submit the demo agent workload]
+    AWS_UI --> OBSERVE[Observe agents, shared-memory decisions,<br/>and completion in the live UI]
+    OBSERVE --> DESTROY[Run the documented teardown<br/>and verify AWS resources are removed]
+
+    LOCAL_STOP --> DONE([Finished])
+    CI_NOTE --> DONE
+    DESTROY --> DONE
+
+    classDef local fill:#123b35,stroke:#34d399,color:#f0fdf4
+    classDef ci fill:#172554,stroke:#60a5fa,color:#eff6ff
+    classDef aws fill:#4a2c12,stroke:#fbbf24,color:#fffbeb
+    classDef caution fill:#3f1d2e,stroke:#fb7185,color:#fff1f2
+    class LOCAL_ENV,LOCAL_STACK,LOCAL_SIM,LOCAL_UI,LOCAL_STOP local
+    class PUSH,CI,CI_NOTE ci
+    class COST,APPLY,DEPLOY,AWS_UI,OBSERVE,DESTROY aws
+    class COST,CI_NOTE caution
+
+    click LOCAL_ENV "dashboard/README.md" "Open local dashboard and demo instructions"
+    click LOCAL_UI "dashboard/README.md" "Open local dashboard and demo instructions"
+    click COST "infra/README.md" "Review AWS deployment, costs, validation, and teardown"
+    click APPLY "infra/README.md" "Review AWS deployment, costs, validation, and teardown"
+    click DEPLOY "infra/README.md" "Review AWS deployment, costs, validation, and teardown"
+    click DESTROY "infra/README.md" "Review AWS deployment, costs, validation, and teardown"
+```
+
+**Recommended path:** use the local route for regular development. The AWS route creates billable resources and is currently decommissioned; follow [the AWS guide](infra/README.md) only when you intend to redeploy and monitor costs.
 
 ## Run the local demo
 
