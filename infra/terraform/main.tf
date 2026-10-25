@@ -2,12 +2,6 @@ resource "aws_security_group" "nodes" {
   name_prefix = "${local.name}-nodes-"
   description = "Additional EKS node group security group and RDS access identity"
   vpc_id      = aws_vpc.main.id
-  ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
-  }
   egress {
     from_port   = 0
     to_port     = 0
@@ -18,8 +12,16 @@ resource "aws_security_group" "nodes" {
     Name                                      = "${local.name}-nodes"
     "kubernetes.io/cluster/${local.name}-eks" = "owned"
   }
+  lifecycle {
+    ignore_changes = [ingress]
+  }
 }
 
+resource "aws_vpc_security_group_ingress_rule" "nodes_self" {
+  security_group_id            = aws_security_group.nodes.id
+  referenced_security_group_id = aws_security_group.nodes.id
+  ip_protocol                  = "-1"
+}
 resource "aws_vpc_security_group_ingress_rule" "control_plane_to_nodes_https" {
   security_group_id            = aws_security_group.nodes.id
   referenced_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
@@ -32,6 +34,13 @@ resource "aws_vpc_security_group_ingress_rule" "control_plane_to_nodes_kubelet" 
   referenced_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
   from_port                    = 1025
   to_port                      = 65535
+  ip_protocol                  = "tcp"
+}
+resource "aws_vpc_security_group_ingress_rule" "nodes_to_control_plane_https" {
+  security_group_id            = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  referenced_security_group_id = aws_security_group.nodes.id
+  from_port                    = 443
+  to_port                      = 443
   ip_protocol                  = "tcp"
 }
 
@@ -81,7 +90,7 @@ resource "aws_eks_cluster" "main" {
 
 resource "aws_eks_node_group" "main" {
   cluster_name    = aws_eks_cluster.main.name
-  node_group_name = "${local.name}-workers"
+  node_group_name = "${local.name}-${var.node_group_name_suffix}"
   node_role_arn   = aws_iam_role.nodes.arn
   subnet_ids      = aws_subnet.private[*].id
   instance_types  = var.node_instance_types
@@ -324,12 +333,12 @@ resource "aws_db_instance" "main" {
   vpc_security_group_ids          = [aws_security_group.database.id]
   multi_az                        = var.database_multi_az
   publicly_accessible             = false
-  backup_retention_period         = 7
+  backup_retention_period         = var.database_backup_retention_days
   copy_tags_to_snapshot           = true
   auto_minor_version_upgrade      = true
   deletion_protection             = true
   skip_final_snapshot             = false
-  final_snapshot_identifier       = "${local.name}-final"
+  final_snapshot_identifier       = "${local.name}-final-demo-20261025"
   enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
   performance_insights_enabled    = true
   apply_immediately               = false

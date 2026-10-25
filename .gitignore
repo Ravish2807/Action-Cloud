@@ -7,6 +7,8 @@
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+*.tfplan
+*.aux
 infra/terraform/backend.tf
 infra/terraform/crash.log
 .tools/
