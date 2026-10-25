@@ -1,4 +1,5 @@
-streamlit
+streamlit==1.65.0
+starlette==1.8.0
 plotly
 pandas
 psycopg[binary,pool]==3.2.3

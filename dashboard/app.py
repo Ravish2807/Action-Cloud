@@ -250,26 +250,95 @@ STAGE_VISUALS = [
 ]
 
 
-def render_stage_flow(stage_counts: dict[str, int]):
-    """Render a live pipeline whose animated connector width follows stage load."""
+def load_run_memory_decisions(run_id: str) -> list[dict]:
+    """Join run telemetry to persisted retrievals and visibility-blocked candidates."""
+    with db.get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.activity_id::text, a.agent_id, a.agent_role, a.stage, a.status,
+                   own.id::text AS own_memory_id, own.tier::text AS own_tier,
+                   COALESCE((
+                       SELECT array_agg(found.id::text)
+                       FROM unnest(COALESCE(own.retrieved_experience_ids, ARRAY[]::uuid[])) AS used(id)
+                       JOIN experiences found ON found.id = used.id
+                   ), ARRAY[]::text[]) AS accepted_memory_ids,
+                   COALESCE((
+                       SELECT array_agg(candidate.id::text)
+                       FROM experiences candidate
+                       WHERE own.task_key IS NOT NULL
+                         AND candidate.run_id = a.run_id
+                         AND candidate.task_key = own.task_key
+                         AND candidate.created_at < a.started_at
+                         AND candidate.agent_id <> a.agent_id
+                         AND (COALESCE((SELECT transition.to_tier::text
+                                        FROM tier_transitions transition
+                                        WHERE transition.experience_id = candidate.id
+                                          AND transition.created_at <= a.started_at
+                                        ORDER BY transition.created_at DESC LIMIT 1), candidate.tier::text) = 'private'
+                              OR (COALESCE((SELECT transition.to_tier::text
+                                            FROM tier_transitions transition
+                                            WHERE transition.experience_id = candidate.id
+                                              AND transition.created_at <= a.started_at
+                                            ORDER BY transition.created_at DESC LIMIT 1), candidate.tier::text) = 'agent'
+                                  AND candidate.agent_role::text <> a.agent_role))
+                   ), ARRAY[]::text[]) AS blocked_memory_ids,
+                   COALESCE((
+                       SELECT string_agg(DISTINCT COALESCE((SELECT transition.to_tier::text
+                                                           FROM tier_transitions transition
+                                                           WHERE transition.experience_id = candidate.id
+                                                             AND transition.created_at <= a.started_at
+                                                           ORDER BY transition.created_at DESC LIMIT 1), candidate.tier::text), ', ')
+                       FROM experiences candidate
+                       WHERE own.task_key IS NOT NULL
+                         AND candidate.run_id = a.run_id
+                         AND candidate.task_key = own.task_key
+                         AND candidate.created_at < a.started_at
+                         AND candidate.agent_id <> a.agent_id
+                         AND (COALESCE((SELECT transition.to_tier::text
+                                        FROM tier_transitions transition
+                                        WHERE transition.experience_id = candidate.id
+                                          AND transition.created_at <= a.started_at
+                                        ORDER BY transition.created_at DESC LIMIT 1), candidate.tier::text) = 'private'
+                              OR (COALESCE((SELECT transition.to_tier::text
+                                            FROM tier_transitions transition
+                                            WHERE transition.experience_id = candidate.id
+                                              AND transition.created_at <= a.started_at
+                                            ORDER BY transition.created_at DESC LIMIT 1), candidate.tier::text) = 'agent'
+                                  AND candidate.agent_role::text <> a.agent_role))
+                   ), '') AS blocked_memory_tiers
+            FROM llm_run_activity a
+            LEFT JOIN experiences own ON own.id = a.memory_id
+            WHERE a.run_id = %s
+            ORDER BY a.started_at
+            """,
+            (run_id,),
+        )
+        return cur.fetchall()
+
+
+def render_stage_flow(stage_counts: dict[str, int], replay_count: int = 0, complete: bool = False):
+    """Render flowing live work, then a distinct settled completion state."""
     parts = []
     for index, (key, label, icon) in enumerate(STAGE_VISUALS):
         count = int(stage_counts.get(key, 0))
-        active_class = " stage-active" if count else ""
+        active_class = " stage-active" if count else (" stage-complete" if complete else (" stage-done" if replay_count else ""))
+        shown_count = count or replay_count
+        count_label = "active" if count else ("done" if complete else ("passed" if replay_count else "active"))
+        check = "<b class='done-check'>✓</b>" if complete else ""
         parts.append(
-            f"<div class='flow-stage{active_class}' title='{count} active task(s)'>"
-            f"<div class='stage-icon'>{icon}</div>"
+            f"<div class='flow-stage{active_class}' title='{shown_count} {count_label} task(s)'>"
+            f"<div class='stage-icon'><span>{icon}</span>{check}</div>"
             f"<div class='stage-name'>{label}</div>"
-            f"<div class='stage-load'>{count} <span>active</span></div>"
+            f"<div class='stage-load'>{shown_count} <span>{count_label}</span></div>"
             f"</div>"
         )
         if index < len(STAGE_VISUALS) - 1:
             next_key = STAGE_VISUALS[index + 1][0]
-            load = max(count, int(stage_counts.get(next_key, 0)))
+            load = max(count, int(stage_counts.get(next_key, 0)), replay_count)
             thickness = min(18, 3 + load * 2.5)
             parts.append(
-                f"<div class='flow-link{' link-live' if load else ''}' "
-                f"style='--link-load:{thickness:.1f}px' title='{load} active task(s) in adjacent stage(s)'>"
+                f"<div class='flow-link{' link-live' if any(stage_counts.values()) else (' link-complete' if complete else (' link-replay' if replay_count else ''))}' "
+                f"style='--link-load:{thickness:.1f}px' title='{load} active or replayed task(s) in adjacent stage(s)'>"
                 "<span></span></div>"
             )
 
@@ -285,10 +354,19 @@ def render_stage_flow(stage_counts: dict[str, int]):
         transition:transform .35s ease, border-color .35s ease, box-shadow .35s ease; }}
       .flow-stage.stage-active {{ transform:translateY(-3px); border-color:#61d7ff;
         color:#f5fbff; box-shadow:0 0 22px #38bdf855, inset 0 0 22px #38bdf814; }}
+      .flow-stage.stage-done {{ border-color:#2f8a78; color:#dcfff7;
+        box-shadow:0 0 14px #2dd4bf22, inset 0 0 15px #2dd4bf10; }}
+      .flow-stage.stage-complete {{ border-color:#39b98f; color:#eafff5;
+        box-shadow:0 0 18px #39b98f33, inset 0 0 16px #39b98f14; }}
       .stage-icon {{ width:34px; height:34px; margin:0 auto 8px; display:grid; place-items:center;
         border-radius:11px; color:#9baac1; background:#263247; font-size:21px; font-weight:700; }}
       .stage-active .stage-icon {{ color:#05131d; background:linear-gradient(135deg,#63e6d2,#47b8ff);
         box-shadow:0 0 17px #47caff77; }}
+      .stage-done .stage-icon, .stage-complete .stage-icon {{ color:#05241d; background:linear-gradient(135deg,#6ee7b7,#2dd4bf); }}
+      .stage-icon {{ position:relative; }}
+      .done-check {{ position:absolute; right:-5px; top:-6px; display:grid; place-items:center;
+        width:16px; height:16px; border-radius:50%; color:#06251c; background:#8cffcb;
+        border:2px solid #10241e; font-size:10px; line-height:1; }}
       .stage-name {{ font-size:12px; line-height:1.25; font-weight:650; min-height:30px; }}
       .stage-load {{ margin-top:6px; color:#6ee7db; font-size:14px; font-weight:750; }}
       .stage-load span {{ color:#8793a8; font-size:10px; font-weight:500; }}
@@ -300,9 +378,17 @@ def render_stage_flow(stage_counts: dict[str, int]):
         height:var(--link-load); max-height:18px; border-radius:99px;
         background:linear-gradient(90deg,#53e7d1,#55aaff); filter:drop-shadow(0 0 5px #43d9ff);
         animation:ac-flow-pulse 1.35s linear infinite; }}
+      .flow-link.link-replay:before {{ background:linear-gradient(90deg,#2f8a78,#39b9a5); }}
+      .flow-link.link-replay:after {{ content:''; position:absolute; left:0; width:38%; height:var(--link-load);
+        max-height:18px; border-radius:99px; background:linear-gradient(90deg,#6ee7b7,#2dd4bf);
+        filter:drop-shadow(0 0 5px #2dd4bf99); animation:ac-flow-pulse 2s linear infinite; }}
+      .flow-link.link-complete:before {{ background:linear-gradient(90deg,#279d79,#53d6a4);
+        animation:ac-complete-glow 2.8s ease-in-out infinite; }}
       @keyframes ac-flow-pulse {{ from {{ transform:translateX(-105%); opacity:.25; }}
         35% {{ opacity:1; }} to {{ transform:translateX(285%); opacity:.25; }} }}
-      @media (prefers-reduced-motion: reduce) {{ .flow-link:after {{ animation:none !important; }} }}
+      @keyframes ac-complete-glow {{ 0%,100% {{ opacity:.65; filter:drop-shadow(0 0 1px #39d99b55); }}
+        50% {{ opacity:1; filter:drop-shadow(0 0 6px #39d99b99); }} }}
+      @media (prefers-reduced-motion: reduce) {{ .flow-link:after, .flow-link.link-complete:before {{ animation:none !important; }} }}
     </style>
     <div class="ac-flow-shell"><div class="ac-flow">{''.join(parts)}</div></div>
     """
@@ -320,34 +406,56 @@ def render_live_llm_flow(selected_run: str | None):
         st.caption(str(exc))
         return
 
-    df = pd.DataFrame(rows)
+    if not rows:
+        st.info("No tracked agent runs yet. Start the cloud live demo; its newest run will appear here automatically.")
+        return
+
+    # Follow the most recently started run by default. Persisted widget state
+    # previously kept the dashboard pinned to an older demo run.
+    focused_run = selected_run or rows[0]["run_id"]
+    focused_rows = [row for row in rows if row["run_id"] == focused_run]
+    df = pd.DataFrame(focused_rows)
     if not df.empty:
         df["updated_at"] = pd.to_datetime(df["updated_at"], utc=True)
     cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=15)
     active = (df[(df["status"] == "running") & (df["updated_at"] >= cutoff)]
               if not df.empty else df)
+    planned = 25 if focused_run.startswith("cloud-live25-") else len(df)
+    completed_count = int((df["status"] == "completed").sum())
+    stored_count = int((df["storage_status"] == "stored").sum())
+    execution_complete = len(df) >= planned and completed_count >= planned and stored_count >= planned
+    failed_count = int((df["status"] == "failed").sum())
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Active LLM tasks", len(active))
-    c2.metric("Models active", active["llm_model"].nunique() if not active.empty else 0)
-    c3.metric("Completed runs", int((df["status"] == "completed").sum()) if not df.empty else 0)
-    c4.metric("Memories stored", int((df["storage_status"] == "stored").sum()) if not df.empty else 0)
-    st.caption("Active means a tracked task reported progress in the last 15 minutes. This panel refreshes every 3 seconds.")
+    c1.metric("Agents planned / tracked", f"{planned} / {len(df)}")
+    c2.metric("Active now", len(active))
+    c3.metric("Tasks completed", f"{completed_count} / {planned}")
+    c4.metric("Memories stored", f"{stored_count} / {planned}")
+    st.markdown(f"**Following run:** `{focused_run}`")
+    if execution_complete:
+        st.success(f"COMPLETED — {planned}/{planned} agents finished and {stored_count}/{planned} memories are stored in ActionCloud.")
+    elif failed_count:
+        st.error(f"ATTENTION — {failed_count} agent task(s) failed; {completed_count}/{planned} completed so far.")
+    elif completed_count >= planned:
+        st.warning(f"STORING MEMORIES — all {planned} agent tasks finished; {stored_count}/{planned} writes have reached PostgreSQL.")
+    else:
+        st.info(f"RUNNING — {len(active)} active; {completed_count}/{planned} tasks complete; {stored_count}/{planned} memories stored.")
+    st.caption("Live counts refresh every 3 seconds. Active flow moves in cyan; completed flow settles to green with check marks.")
 
     stage_counts = {key: int((active["stage"] == key).sum()) if not active.empty else 0
                     for key, _, _ in STAGE_VISUALS}
     st.subheader("Live task pipeline")
-    render_stage_flow(stage_counts)
-    st.caption("Each stage shows its active task count. Connector thickness and motion increase with the load in the stages it joins.")
+    replay_count = completed_count if active.empty and not execution_complete else 0
+    render_stage_flow(stage_counts, replay_count=planned if execution_complete else replay_count,
+                      complete=execution_complete)
 
-    if df.empty:
-        st.info("No tracked agent runs yet. Start a benchmark or built-in Agent.run_task workload; new runs will appear here.")
-        return
+    memory_rows = load_run_memory_decisions(focused_run)
+    decisions = {row["activity_id"]: row for row in memory_rows}
 
     st.subheader("Tracked LLM agents")
     st.caption("The newest active and completed agent tasks appear here and update with the pipeline.")
     display_rows = df.copy()
     display_rows["_active"] = display_rows["status"].eq("running")
-    display_rows = display_rows.sort_values(["_active", "started_at"], ascending=[False, False]).head(12)
+    display_rows = display_rows.sort_values(["_active", "started_at"], ascending=[False, False]).head(25)
     for start in range(0, len(display_rows), 3):
         agent_cols = st.columns(3)
         for col, (_, item) in zip(agent_cols, display_rows.iloc[start:start + 3].iterrows()):
@@ -360,9 +468,33 @@ def render_live_llm_flow(selected_run: str | None):
                     st.markdown(f"Stage: **{item['stage']}** · Model: `{item['llm_model']}`")
                     st.caption(f"Storage: {item.get('storage_status') or 'pending'} · Tier: {item.get('memory_tier') or 'pending'}")
 
-    options = [f"{r['agent_id']} · {str(r['task'])[:85]} · {r['activity_id'][:8]}" for r in rows]
-    by_label = {label: row for label, row in zip(options, rows)}
-    choice = st.selectbox("Inspect a run", options, key="live_llm_activity_choice")
+    st.subheader("Shared memory handoff")
+    st.caption("Green indicates an actually retrieved memory ID. Red indicates a same-task memory that the stored tier and role rules make invisible.")
+    accepted_agents = sum(bool((decisions.get(item["activity_id"], {}).get("accepted_memory_ids") or []))
+                          for _, item in df.iterrows())
+    blocked_agents = sum(bool((decisions.get(item["activity_id"], {}).get("blocked_memory_ids") or []))
+                         for _, item in df.iterrows())
+    handoff_a, handoff_b = st.columns(2)
+    handoff_a.metric("Agents that retrieved memory", f"{accepted_agents} / {len(df)}")
+    handoff_b.metric("Agents blocked by tier / role", f"{blocked_agents} / {len(df)}")
+    for _, item in df.sort_values("started_at").iterrows():
+        decision = decisions.get(item["activity_id"], {})
+        accepted = decision.get("accepted_memory_ids") or []
+        blocked = decision.get("blocked_memory_ids") or []
+        if accepted:
+            ids = ", ".join(f"`{str(mid)[:8]}`" for mid in accepted)
+            st.success(f"{item['agent_id']} ({item['agent_role']}) accepted {len(accepted)} memory item(s): {ids}")
+        elif blocked:
+            tiers_text = decision.get("blocked_memory_tiers") or "restricted tier"
+            st.error(f"{item['agent_id']} ({item['agent_role']}) was denied {len(blocked)} same-task memory item(s) by {tiers_text} visibility policy.")
+        elif item.get("status") == "running":
+            st.info(f"{item['agent_id']} is running; its memory decision will appear after retrieval and persistence.")
+        else:
+            st.caption(f"{item['agent_id']} ({item['agent_role']}): no same-task memory was selected or blocked for this run.")
+
+    options = [f"{r['agent_id']} · {str(r['task'])[:85]} · {r['activity_id'][:8]}" for r in focused_rows]
+    by_label = {label: row for label, row in zip(options, focused_rows)}
+    choice = st.selectbox("Inspect an agent in this run", options, key=f"live_llm_activity_choice_{focused_run}")
     record = by_label[choice]
     current_stage = record["stage"]
     current_idx = next((i for i, (key, _) in enumerate(STAGES) if key == current_stage), -1)
@@ -403,10 +535,15 @@ def render_live_llm_flow(selected_run: str | None):
         if record.get("result_text"):
             st.code(record["result_text"], language=None)
 
-    table_cols = ["started_at", "agent_id", "llm_model", "stage", "status",
+    table_cols = ["started_at", "agent_id", "agent_role", "llm_model", "stage", "status",
                   "outcome_success", "storage_status", "memory_tier", "run_id"]
-    st.subheader("Recent tracked runs")
-    st.dataframe(df[table_cols].head(30), use_container_width=True, hide_index=True)
+    st.subheader("Agents in the focused run")
+    st.dataframe(df[table_cols], width="stretch", hide_index=True)
+
+    earlier = [row for row in rows if row["run_id"] != focused_run]
+    if earlier:
+        with st.expander("Earlier runs"):
+            st.dataframe(pd.DataFrame(earlier)[table_cols].head(30), width="stretch", hide_index=True)
 
 
 if refresh:
