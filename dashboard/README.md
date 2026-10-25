@@ -43,3 +43,27 @@ To use a real model, configure the provider key in `.env` and select `--provider
 ## Local stack versus AWS
 
 This laptop demo exercises the application, database, queue integration, migrations, and dashboard. Docker Compose uses LocalStack and local PostgreSQL; it does not provision or connect to AWS EKS, RDS, or SQS. For the production deployment path and CI workflow, see [infra/README.md](../infra/README.md).
+
+## Run agents against the live AWS deployment
+
+With the EKS API, worker, RDS, SQS, and dashboard running, open the public dashboard address:
+
+```powershell
+kubectl get ingress actioncloud-actioncloud-dashboard -n actioncloud
+```
+
+Open its `ADDRESS`, then select **Live LLM Flow**. In another PowerShell terminal at the repository root, start the cloud demo workload:
+
+```powershell
+Get-Content scripts/run_cloud_live_demo.py -Raw |
+  kubectl exec -i deployment/actioncloud-actioncloud-api -n actioncloud `
+    --container api -- python -
+```
+
+Twenty-five agents run through the deployed ActionCloud REST API: one coding writer, 11 readers with distinct other roles, and 13 coding readers. The writer produces a verified experience that the queue worker stores at AGENT tier. Cross-role readers are checked before reuse feedback can promote the writer's memory and are blocked by the role visibility rule; coding readers can retrieve it. The Live LLM Flow follows the newest run automatically, shows planned, active, completed, and stored counts. Active work uses a moving cyan flow; after completion it switches to settled green connectors with check marks and a 25/25 completion message. The handoff panel lists actual accepted or role-blocked memory IDs for each agent. Confirm worker processing with:
+
+```powershell
+kubectl logs deployment/actioncloud-actioncloud-worker -n actioncloud --since=10m --tail=50
+```
+
+This demo uses the deterministic `sim` model provider and a short presentation pause so the active LLM stage is visible. It makes no external model API calls. Its displayed simulated model costs are estimates; AWS infrastructure resources still incur AWS charges while the deployment is running. After recording, destroy the AWS stack to stop those charges.
