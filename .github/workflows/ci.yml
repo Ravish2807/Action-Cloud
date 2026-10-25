@@ -46,7 +46,11 @@ jobs:
       - run: pytest -q
 
   infrastructure:
+    name: Deployment configuration validation (no AWS)
     runs-on: ubuntu-latest
+    environment:
+      name: deployment-validation
+      url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -62,7 +66,16 @@ jobs:
           terraform init -backend=false
           terraform validate
       - name: Helm lint
-        run: helm lint helm/actioncloud --set image.repository=example/actioncloud --set config.dbHost=example.invalid --set serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::111111111111:role/example --set migration.serviceAccountRoleArn=arn:aws:iam::111111111111:role/example
+        run: >-
+          helm lint helm/actioncloud
+          --set image.repository=example/actioncloud
+          --set config.dbHost=example.invalid
+          --set serviceAccount.annotations.eks\.amazonaws\.com/role-arn=arn:aws:iam::111111111111:role/example
+          --set migration.serviceAccountRoleArn=arn:aws:iam::111111111111:role/example
+          --set dashboard.enabled=true
+          --set dashboard.image.repository=example/actioncloud-dashboard
+          --set dashboard.public.enabled=true
+          --set "dashboard.public.allowedCidrs[0]=198.51.100.0/24"
 
   image:
     runs-on: ubuntu-latest
